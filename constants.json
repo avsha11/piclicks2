@@ -1,0 +1,36 @@
+{
+  "MM_PER_IN": 25.4,
+  "DPI": 300,
+  "BLEED_MM": 2.0,
+  "CLEAR_TILE_MM": {
+    "w": 143.7,
+    "h": 126.0,
+    "corner_radius": 8
+  },
+  "PRINT_TILE_MM": {
+    "w": 147.7,
+    "h": 130.0,
+    "corner_radius": 10
+  },
+  "FRAME": {
+    "print_thickness_mm": 10.0,
+    "visible_thickness_mm": 8.0,
+    "inner_corner_radius_mm": 2.0
+  },
+  "TERMS": {
+    "clear_area": "visible in editor/preview",
+    "with_bleed": "clear area + 2mm hidden bleed"
+  },
+  "OUTPUT": {
+    "format": "PNG",
+    "dpi": 300,
+    "skip_empty_tiles": true,
+    "color_space": "CMYK target (sRGB runtime)"
+  },
+  "RENDER_ORDER": [
+    "frame",
+    "text",
+    "filter",
+    "image"
+  ]
+}

@@ -1,0 +1,35 @@
+APP_NAME=Piclicks
+APP_ENV=local
+APP_KEY=base64:VGhpcyBpcyBhIHRlbXBvcmFyeSBrZXkgZm9yIGRldmVsb3BtZW50
+APP_DEBUG=true
+APP_URL=http://localhost:8000
+
+LOG_CHANNEL=stack
+LOG_DEPRECATIONS_CHANNEL=null
+LOG_LEVEL=debug
+
+# Database Configuration
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=sanshaco_piclicks_live
+DB_USERNAME=root
+DB_PASSWORD=
+
+BROADCAST_DRIVER=log
+CACHE_DRIVER=file
+FILESYSTEM_DISK=local
+QUEUE_CONNECTION=sync
+SESSION_DRIVER=file
+SESSION_LIFETIME=120
+
+# Google Maps API Key (for address autocomplete)
+# For now, this is set to DEMO_KEY - address autocomplete won't work but checkout will load
+GOOGLE_API_KEY=DEMO_KEY
+
+# PayPal Configuration (for payments)
+# For now, this is set to DEMO - PayPal button won't appear but checkout will load
+PAYPAL_CLIENT_ID=DEMO
+PAYPAL_CLIENT_SECRET=DEMO
+PAYPAL_API_BASEURL=https://api-m.sandbox.paypal.com/
+

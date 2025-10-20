@@ -1,0 +1,51 @@
+/vendor/
+/node_modules/
+/.idea/
+/.vscode/
+/.fleet/
+/public/hot
+/public/storage
+/storage/*.key
+/storage/app/public/*
+/storage/framework/cache/*
+/storage/framework/sessions/*
+/storage/framework/testing/*
+/storage/framework/views/*
+/storage/logs/*
+*.log
+.env
+.env.backup
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml
+npm-debug.log
+yarn-error.log
+.DS_Store
+Thumbs.db
+
+# Exclude duplicate project directories
+/dev_checkpoints/
+/reference_broken_version/
+/piclicks_live_storage_17092025/
+/checkpoint_*/
+
+# Large files and directories that shouldn't be in git
+*.zip
+*.sql
+*.jpg
+*.png
+*.gif
+*.mp4
+*.avi
+/uploads/
+/storage/app/public/
+/storage/framework/
+/storage/logs/
+
+# Database dumps
+*.sql
+
+# Backup files
+*.bak
+*.backup
+

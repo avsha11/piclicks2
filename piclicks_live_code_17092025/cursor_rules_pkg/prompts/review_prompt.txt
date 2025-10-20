@@ -1,0 +1,15 @@
+You are a senior reviewer. Review the following diff/commit for adherence to `.cursor/rules/*.mdc`:
+
+[Paste diff/commit or list of changed files]
+
+Check for:
+- Rule compliance (architecture, PHP/Laravel, JS, SQL, CSS, security, Vite, Livewire, UI libs).
+- Security risks (SQLi, XSS, CSRF, file uploads, secrets).
+- Performance (N+1 queries, big DOM, oversized bundles).
+- Readability/maintainability (file size, duplication, naming).
+- Tests (coverage of new paths, regression prevention).
+
+Output:
+- List of issues by severity with file/line references when possible.
+- Concrete patch suggestions.
+- Final summary and go/no-go recommendation.

@@ -1,0 +1,16 @@
+description: Global, flexible rules for Cursor agent across the repo.
+alwaysApply: true
+
+# Philosophy
+- Prefer simplicity over cleverness.
+- DRY: search for existing code before writing new.
+- Touch only what’s necessary for the change request.
+- Keep files small (< ~300 lines); refactor or split early.
+- No throwaway scripts or mock data in dev/prod; mocks only in tests.
+- Do not change the core stack (Laravel/Blade/jQuery/Bootstrap/Vite) without explicit approval.
+- Propose alternatives only if you explain trade‑offs; ask before adding dependencies.
+
+# Process
+- Plan → Implement → Test → Review → Refactor.
+- Write or update tests for non‑trivial logic.
+- Document changes briefly in code comments or README/changelog.
