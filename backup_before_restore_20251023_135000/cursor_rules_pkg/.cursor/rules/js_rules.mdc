@@ -1,0 +1,23 @@
+description: Rules for JavaScript (jQuery 3.6, Axios) in a non-SPA, multi-page app.
+globs: ["resources/js/**/*.js", "public/**/*.js"]
+alwaysApply: true
+
+# General
+- Prefer modular, isolated scripts per-page/feature; avoid global namespace pollution.
+- Use IIFE or modules via Vite for scoping where possible.
+- Handle errors (try/catch or .catch); avoid silent failures.
+- Use Axios for HTTP; centralize Axios config (base URL, CSRF headers).
+
+# jQuery
+- Use event delegation for dynamic content.
+- Avoid deep DOM traversal and brittle selectors; use data-* attributes for hooks.
+- Do not inject large HTML strings in JS; prefer Blade partials or small templates.
+- Avoid mixing unrelated concerns in a single file.
+
+# Performance
+- Throttle/debounce expensive handlers (scroll/resize).
+- Avoid forced synchronous layouts; batch DOM reads/writes.
+
+# Code Style
+- Prefer const/let over var.
+- Avoid files > ~300 lines; split by feature/module.

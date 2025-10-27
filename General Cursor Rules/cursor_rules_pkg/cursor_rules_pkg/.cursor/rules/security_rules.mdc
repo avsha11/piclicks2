@@ -1,0 +1,14 @@
+description: Security hygiene across the stack.
+alwaysApply: true
+
+# Input & Output
+- Validate/authorize requests (Form Requests/Policies).
+- Escape output by default in Blade.
+- Use CSRF tokens for forms and Axios requests.
+
+# Common Risks
+- Prevent SQL injection (bindings), XSS (escaping), CSRF (tokens), SSRF (validate URLs), file upload risks (mime/size/scan).
+- Never expose secrets to the client; use env configuration via server only.
+
+# Dependencies
+- Ask before adding new libraries. Explain risks, maintenance, and bundle impact.

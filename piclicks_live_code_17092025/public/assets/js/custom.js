@@ -224,19 +224,15 @@
     });
 
     /* Video Popup */
-    if (typeof $.fn.grtyoutube !== 'undefined') {
-        $(".youtube-link").grtyoutube({
-            autoPlay:true,
-            theme: "dark"
-        });
-    }
+    $(".youtube-link").grtyoutube({
+        autoPlay:true,
+        theme: "dark"
+    });
 
     /* Counter */
-    if (typeof $.fn.rCounter !== 'undefined') {
-        $('.count-num').rCounter({
-            duration: 100
-        });
-    }
+    $('.count-num').rCounter({
+        duration: 100
+      });
 
     
 })(window.jQuery);   

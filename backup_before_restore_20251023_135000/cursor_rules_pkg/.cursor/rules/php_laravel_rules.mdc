@@ -1,0 +1,28 @@
+description: Rules for PHP/Laravel code (controllers, models, services, routes, tests).
+globs: ["app/**/*.php", "routes/**/*.php", "database/**/*.php", "tests/**/*.php"]
+alwaysApply: true
+
+# Architecture
+- Controllers stay thin: validate request, delegate to services/use-cases, return response.
+- Business logic lives in Services/Domain, not in controllers or views.
+- Use Dependency Injection; limit facades in domain logic.
+- Use Policies/Gates/Middleware for authz; do not sprinkle auth checks ad hoc.
+
+# Database & Eloquent
+- Use Eloquent/Query Builder with parameter binding; avoid raw SQL.
+- No string-concatenated SQL with user input.
+- Avoid SELECT *; select explicit columns.
+- Consider indexes for frequently filtered/joined columns.
+- Avoid N+1 queries; eager load relations when needed.
+
+# Migrations/Seeders
+- Always provide `up()` and `down()` for migrations.
+- Seeders only for dev/test; do not ship production-only dummy data.
+
+# Testing
+- Add/maintain unit/feature tests for new/changed logic.
+- Regression tests for reported bugs.
+
+# File Size & Style
+- Keep files under ~300 lines; split large classes.
+- Follow PSR-12; consistent naming (StudlyCase classes, camelCase methods).

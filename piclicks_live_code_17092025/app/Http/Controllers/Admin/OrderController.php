@@ -271,16 +271,37 @@ class OrderController extends Controller
             foreach ($tiles_res_final as $tile) {
                 $image_bleed = json_decode($tile->image_with_bleed, true);
                 if (is_array($image_bleed) && !empty($image_bleed)) {
+                    // Use print files (PNG with bleed)
                     foreach ($image_bleed as $image) {
                         $images[] = ['image_edited' => $image];
                     }
+                } else {
+                    // Fallback: If print files don't exist, log warning
+                    // Don't download original image_edited as they're not print-ready
+                    Log::warning("No print files for tile", [
+                        'tile_id' => $tile->id,
+                        'image_with_bleed' => $tile->image_with_bleed
+                    ]);
                 }
             }
             
             Log::info("=== getDesignCollageImages completed ===", [
                 'processed' => $processedCount,
-                'total_print_files' => count($images)
+                'total_print_files' => count($images),
+                'sample_paths' => array_slice($images, 0, 3) // Log first 3 paths for debugging
             ]);
+            
+            // If no print files were found/generated, return error
+            if (empty($images)) {
+                Log::error("No print files available for download", [
+                    'order_id' => $request->order_id,
+                    'tiles_found' => $tiles_res->count()
+                ]);
+                return response()->json([
+                    'status' => 0, 
+                    'message' => 'No print files available. Please try regenerating by clicking "Download Zip" again.'
+                ]);
+            }
             
             return response()->json(['status' => 1, 'message' => '', 'images' => $images]);
             

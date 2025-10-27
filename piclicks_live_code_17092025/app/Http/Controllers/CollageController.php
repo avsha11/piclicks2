@@ -462,12 +462,12 @@ class CollageController extends Controller
             $img2_h = imagesy($img2);
 
             if ($scaleFactor !== 0) {
-                $scale = $scaleFactor * 1.4; // Increase by 40% (1.0 + 0.4 = 1.4)
+                $scale = $scaleFactor;
                 $final_w = intval($img2_w * $scale);
                 $final_h = intval($img2_h * $scale);
             } else {
-                $max_width = intval($bg_w * 0.55 * 1.4); // Increase by 40%
-                $max_height = intval($bg_h * 0.6 * 1.4); // Increase by 40%
+                $max_width = intval($bg_w * 0.55);
+                $max_height = intval($bg_h * 0.6);
                 if ($cols > $rows) {
                     $target_w = min($avail_w, $max_width);
                     $scale = min($target_w / $img2_w, 1);
@@ -481,15 +481,8 @@ class CollageController extends Controller
                 }
             }
 
-            // Position collage 12% higher in the scene
-            $vertical_adjustment = intval($bg_h * 0.12);
             $dst_x = $margin_left + intval(($avail_w - $final_w) / 2);
-            $dst_y = $margin_top + intval(($avail_h - $final_h) / 2) - $vertical_adjustment;
-
-            // Apply style filter to collage before scaling (if filter is set)
-            if (!empty($designCollagePreviewData['filter']) && $designCollagePreviewData['filter'] !== 'filter-original') {
-                $this->applyFilterToImage($img2, $designCollagePreviewData['filter']);
-            }
+            $dst_y = $margin_top + intval(($avail_h - $final_h) / 2);
 
             // Create scaled collage image
             $img2_scaled = imagecreatetruecolor($final_w, $final_h);
@@ -646,7 +639,7 @@ class CollageController extends Controller
                     // $scale_w = $avail_w / $img2_w;
                     // $scale_h = $avail_h / $img2_h;
                     // $scale = min($scale_w, $scale_h, 1);
-                    $scale = $scaleFactor * 1.4; // Increase by 40%
+                    $scale = $scaleFactor;
 
                     $final_w = intval($img2_w * $scale);
                     $final_h = intval($img2_h * $scale);
@@ -665,8 +658,8 @@ class CollageController extends Controller
                     // CSS-based limits
                     // $max_width = intval($bg_w * 0.25);   // 25dvw
                     // $max_height = intval($bg_h * 0.40);  // 40dvh
-                    $max_width = intval($bg_w * 0.55 * 1.4); // Increase by 40%
-                    $max_height = intval($bg_h * 0.6 * 1.4); // Increase by 40%
+                    $max_width = intval($bg_w * 0.55); // 25dvw
+                    $max_height = intval($bg_h * 0.6); // 40dvh
 
                     if ($cols > $rows) {
                         // Limit by width
@@ -683,16 +676,10 @@ class CollageController extends Controller
                     }
                 }
 
-                // Position collage 12% higher in the scene
-                $vertical_adjustment = intval($bg_h * 0.12);
                 // Center img2 in the available area (after margin)
                 $dst_x = $margin_left + intval(($avail_w - $final_w) / 2);
-                $dst_y = $bg_h - $margin_bottom - $final_h - $vertical_adjustment;
+                $dst_y = $bg_h - $margin_bottom - $final_h;
 
-                // Apply style filter to collage before scaling (if filter is set) 
-                // Note: img2 was already filtered for preview_1, so we need a fresh copy or reuse
-                // Since we're using the same $img2, the filter is already applied from preview_1
-                
                 // Create scaled collage image
                 $img2_scaled = imagecreatetruecolor($final_w, $final_h);
                 imagealphablending($img2_scaled, false);
@@ -914,46 +901,5 @@ class CollageController extends Controller
             }
         }
         return $occupiedTilesCount;
-    }
-
-    /**
-     * Apply style filter to an image resource
-     * Matches the filters available in PrintFileService and frontend CSS
-     * @param resource $canvas - GD image resource
-     * @param string $filter - Filter name (e.g., 'filter-noir', 'filter-stark')
-     */
-    private function applyFilterToImage($canvas, string $filter): void
-    {
-        Log::info("Applying filter to preview image", ['filter' => $filter]);
-        
-        switch ($filter) {
-            case 'filter-noir':
-                imagefilter($canvas, IMG_FILTER_GRAYSCALE);
-                imagefilter($canvas, IMG_FILTER_CONTRAST, -10);
-                break;
-            case 'filter-stark':
-                imagefilter($canvas, IMG_FILTER_CONTRAST, -15);
-                imagefilter($canvas, IMG_FILTER_BRIGHTNESS, 5);
-                break;
-            case 'filter-scandi':
-                imagefilter($canvas, IMG_FILTER_COLORIZE, 20, 10, 0, 0);
-                break;
-            case 'filter-capri':
-                imagefilter($canvas, IMG_FILTER_COLORIZE, 0, 10, 25, 0);
-                break;
-            case 'filter-nordic':
-                imagefilter($canvas, IMG_FILTER_GRAYSCALE);
-                imagefilter($canvas, IMG_FILTER_COLORIZE, 25, 20, 15, 0);
-                break;
-            case 'filter-belveder':
-                imagefilter($canvas, IMG_FILTER_GRAYSCALE);
-                imagefilter($canvas, IMG_FILTER_COLORIZE, 90, 55, 30, 0);
-                break;
-            default:
-                Log::warning("Unknown or no filter", ['filter' => $filter]);
-                break;
-        }
-        
-        Log::info("Filter applied to preview image", ['filter' => $filter]);
     }
 }

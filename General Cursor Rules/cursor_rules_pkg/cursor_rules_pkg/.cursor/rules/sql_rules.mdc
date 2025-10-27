@@ -1,0 +1,8 @@
+description: SQL discipline (applies when writing raw queries or DB logic).
+alwaysApply: true
+
+- Parameterize all queries; never concatenate untrusted input.
+- Avoid SELECT *; list columns.
+- Add indexes for frequent filters/joins.
+- Beware long transactions; keep them short and explicit.
+- Validate migrations in staging before production.

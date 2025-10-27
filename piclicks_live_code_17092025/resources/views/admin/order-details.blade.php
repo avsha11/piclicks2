@@ -245,9 +245,9 @@
                                                 <tr>
                                                     <td>{{ $key + 1 }}</td>
                                                     <td>
-                                                        <a href="{{ asset($orderData->design_collage_master->image_path ? '/storage/' . $orderData->design_collage_master->image_path : 'assets/images/collage-image.png') }}"
+                                                        <a href="{{ $orderData->design_collage_master->image_path ? asset('storage/' . $orderData->design_collage_master->image_path) : asset('assets/images/collage-image.png') }}"
                                                             target="_blank">
-                                                            <img src="{{ asset($orderData->design_collage_master->image_path ? '/storage/' . $orderData->design_collage_master->image_path : 'assets/images/collage-image.png') }}"
+                                                            <img src="{{ $orderData->design_collage_master->image_path ? asset('storage/' . $orderData->design_collage_master->image_path) : asset('assets/images/collage-image.png') }}"
                                                                 style="width: 60px; height: 60px;">
                                                         </a>
                                                     </td>
@@ -356,7 +356,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 <script type="text/javascript">
-    const baseUrl = "{{ url('/public/storage') }}";
+    const baseUrl = "{{ url('/storage') }}";
     // for make zip file of images
     function makeImagesZip(designCollage, btnId) {
         const button = document.getElementById(btnId);

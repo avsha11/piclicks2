@@ -1824,20 +1824,6 @@ document.addEventListener("DOMContentLoaded", () => {
         textOverlay.style.left = "50%";
         textOverlay.style.transform = "translate(-50%, -50%)";
         textOverlay.style.fontFamily = "Arial, sans-serif";
-        
-        // Move to text layer if it exists
-        const textLayer = document.getElementById('text-layer');
-        if (textLayer) {
-            textLayer.appendChild(textOverlay);
-        } else if (window.moveTextsToLayer) {
-            // If text layer doesn't exist yet, use the move function
-            setTimeout(() => window.moveTextsToLayer(), 100);
-        }
-        
-        // Ensure mask is applied after text creation
-        if (window.buildMask) {
-            setTimeout(() => window.buildMask(), 50);
-        }
         textOverlay.style.fontSize = "20px";
         textOverlay.style.color = colorPicker.value || "#000000";
         textOverlay.style.backgroundColor = "transparent";
@@ -1868,12 +1854,6 @@ document.addEventListener("DOMContentLoaded", () => {
         toolmiddle.appendChild(textOverlay);
         makeDraggableAndRotatable(textOverlay, rotateHandle);
         selectOverlay(textOverlay);
-        
-        // Apply clipping after a short delay to ensure text is positioned
-        setTimeout(() => {
-            applyTextClipping(textOverlay);
-        }, 100);
-        
         // Reset text input
         // textInput.value = "";
         toggleGridDragSortonText();
@@ -1905,9 +1885,6 @@ document.addEventListener("DOMContentLoaded", () => {
             const event = e.touches ? e.touches[0] : e;
             element.style.left = `${event.clientX - offsetX}px`;
             element.style.top = `${event.clientY - offsetY}px`;
-            
-            // Apply clipping after movement
-            applyTextClipping(element);
         }
         // Start rotating
         function startRotate(e) {
@@ -1933,9 +1910,6 @@ document.addEventListener("DOMContentLoaded", () => {
             const angle = Math.atan2(dy, dx) * (180 / Math.PI);
             const rotation = angle - initialAngle;
             element.style.transform = `translate(-50%, -50%) rotate(${rotation}deg)`;
-            
-            // Apply clipping after rotation
-            applyTextClipping(element);
         }
         // Stop drag or rotation
         function stopAction() {
@@ -1981,104 +1955,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     // Add event listener for "Add Text" button
     addTextBtn.addEventListener("click", addTextOverlay);
-    
-    // Function to apply clipping to a specific text element
-    function applyTextClipping(textElement) {
-        const grid = document.getElementById('preview-grid');
-        if (!grid) return;
-        
-        const container = document.querySelector('.tool-inner');
-        if (!container) return;
-        
-        // Get text element position and dimensions
-        const textRect = textElement.getBoundingClientRect();
-        const containerRect = container.getBoundingClientRect();
-        
-        // Calculate text position relative to container
-        const textLeft = textRect.left - containerRect.left;
-        const textTop = textRect.top - containerRect.top;
-        const textWidth = textRect.width;
-        const textHeight = textRect.height;
-        
-        // Get grid information
-        const gridStyle = window.getComputedStyle(grid);
-        const gap = parseFloat(gridStyle.gap) || 0;
-        const gridRect = grid.getBoundingClientRect();
-        const gridLeft = gridRect.left - containerRect.left;
-        const gridTop = gridRect.top - containerRect.top;
-        const gridWidth = gridRect.width;
-        const gridHeight = gridRect.height;
-        
-        // Get grid columns
-        const gridColumns = parseInt(gridStyle.gridTemplateColumns.split(' ').length);
-        const gridRows = Math.ceil(grid.children.length / gridColumns);
-        
-        // Calculate tile dimensions
-        const tileWidth = (gridWidth - (gap * (gridColumns - 1))) / gridColumns;
-        const tileHeight = (gridHeight - (gap * (gridRows - 1))) / gridRows;
-        
-        // Create clipping polygon points for occupied tiles that intersect with text
-        let clipPoints = [];
-        
-        for (let row = 0; row < gridRows; row++) {
-            for (let col = 0; col < gridColumns; col++) {
-                const index = row * gridColumns + col;
-                const tile = grid.children[index];
-                
-                // Only process occupied tiles
-                if (tile && tile.classList.contains('has-image')) {
-                    // Calculate tile position
-                    const tileX = gridLeft + col * (tileWidth + gap);
-                    const tileY = gridTop + row * (tileHeight + gap);
-                    
-                    // Check if tile intersects with text area
-                    const tileRight = tileX + tileWidth;
-                    const tileBottom = tileY + tileHeight;
-                    const textRight = textLeft + textWidth;
-                    const textBottom = textTop + textHeight;
-                    
-                    if (tileX < textRight && tileRight > textLeft && 
-                        tileY < textBottom && tileBottom > textTop) {
-                        
-                        // Calculate intersection area
-                        const intersectLeft = Math.max(tileX, textLeft);
-                        const intersectTop = Math.max(tileY, textTop);
-                        const intersectRight = Math.min(tileRight, textRight);
-                        const intersectBottom = Math.min(tileBottom, textBottom);
-                        
-                        // Convert to text-relative coordinates
-                        const relLeft = intersectLeft - textLeft;
-                        const relTop = intersectTop - textTop;
-                        const relRight = intersectRight - textLeft;
-                        const relBottom = intersectBottom - textTop;
-                        
-                        // Add rounded rectangle points
-                        const radius = 7;
-                        clipPoints.push(`${relLeft + radius},${relTop}`);
-                        clipPoints.push(`${relRight - radius},${relTop}`);
-                        clipPoints.push(`${relRight},${relTop + radius}`);
-                        clipPoints.push(`${relRight},${relBottom - radius}`);
-                        clipPoints.push(`${relRight - radius},${relBottom}`);
-                        clipPoints.push(`${relLeft + radius},${relBottom}`);
-                        clipPoints.push(`${relLeft},${relBottom - radius}`);
-                        clipPoints.push(`${relLeft},${relTop + radius}`);
-                    }
-                }
-            }
-        }
-        
-        // Apply clipping path if we have points
-        if (clipPoints.length > 0) {
-            const clipPath = `polygon(${clipPoints.join(' ')})`;
-            textElement.style.clipPath = clipPath;
-            textElement.style.webkitClipPath = clipPath;
-        } else {
-            // Hide text if no occupied tiles intersect
-            textElement.style.clipPath = 'polygon(0 0, 0 0, 0 0)';
-            textElement.style.webkitClipPath = 'polygon(0 0, 0 0, 0 0)';
-        }
-    }
-    
     // // Apply selected font style to the selected text overlay
     // fontOptions.addEventListener("change", (event) => {
     //     if (selectedOverlay) {
@@ -2140,20 +2016,6 @@ document.addEventListener("DOMContentLoaded", () => {
             // textOverlay.style.left = overlay.left;
             // textOverlay.style.fontFamily = overlay.fontFamily;
             // textOverlay.style.fontSize = overlay.fontSize;
-            
-            // Move to text layer if it exists
-            const textLayer = document.getElementById('text-layer');
-            if (textLayer) {
-                textLayer.appendChild(textOverlay);
-            } else if (window.moveTextsToLayer) {
-                // If text layer doesn't exist yet, use the move function
-                setTimeout(() => window.moveTextsToLayer(), 100);
-            }
-            
-            // Ensure mask is applied after text restoration
-            if (window.buildMask) {
-                setTimeout(() => window.buildMask(), 50);
-            }
             // textOverlay.style.color = overlay.color;
             // textOverlay.style.transform = overlay.transform;
             // textOverlay.style.backgroundColor = "transparent";
@@ -2613,15 +2475,6 @@ async function saveCollage(type) {
         // prepareImagesForCapture();
         // Small delay to ensure all styles are applied
         setTimeout(() => {
-            // Store original background and remove it for transparent capture
-            const $previewGrid = $('#preview-grid');
-            const originalBackground = $previewGrid.css('background');
-            const originalBackgroundColor = $previewGrid.css('background-color');
-            $previewGrid.css({
-                'background': 'transparent',
-                'background-color': 'transparent'
-            });
-            
             // // NOT CREATING GOOD QUALITY IMAGE
             // domtoimage.toPng($gridMiddle[0], { bgcolor: 'transparent', quality: 1 })
             // // SLOW TO CREATE IMAGE
@@ -2639,12 +2492,6 @@ async function saveCollage(type) {
                 letterRendering: 1,
                 allowTaint: true,
             }).then(function (canvas) {
-                // Restore original background after capture
-                $previewGrid.css({
-                    'background': originalBackground,
-                    'background-color': originalBackgroundColor
-                });
-                
                 const dataUrl = canvas.toDataURL("image/png");
 
 
@@ -2753,27 +2600,7 @@ async function saveCollage(type) {
                     }
                 });
             }).catch(function (error) {
-                // Restore background even on error
-                const $previewGrid = $('#preview-grid');
-                $previewGrid.css({
-                    'background': originalBackground,
-                    'background-color': originalBackgroundColor
-                });
-                
                 console.error('Error capturing image:', error);
-                btnn.prop('disabled', false).html(btnn_txt);
-                if (type == 'preview' || type == 'manual_admin') $("#previewLoader").hide();
-                if (type == 'preview' || type == 'manual_admin') {
-                    $selectImages.show();
-                    $gridMiddle.find('.middle-top, .middle-bottom').show();
-                    $gridMiddle.find('.tool-inner').css('border', '1px solid lightgray');
-                }
-                toastr.error('Failed to capture canvas.', '', {
-                    closeButton: true,
-                    progressBar: false,
-                    timeOut: 5000,
-                    extendedTimeOut: 0
-                });
             });
         }, 100); // Close the setTimeout
     });
@@ -2958,281 +2785,3 @@ function addResizeDrag(tile, handle) {
         };
     };
 }
-
-// Text clipping mask implementation
-(() => {
-    const grid = document.getElementById('preview-grid');
-    if (!grid) return console.warn('no grid');
-
-    const container = grid.closest('.tool-inner') || grid.parentElement;
-    
-    // Create text layer
-    let textLayer = document.getElementById('text-layer');
-    if (!textLayer) {
-        textLayer = document.createElement('div');
-        textLayer.id = 'text-layer';
-        Object.assign(textLayer.style, { 
-            position: 'absolute', 
-            inset: '0', 
-            zIndex: '10000', 
-            pointerEvents: 'none' 
-        });
-        container.style.position = 'relative';
-        container.appendChild(textLayer);
-    }
-    
-    // Move existing texts into text layer
-    function moveTextsToLayer() {
-        const textOverlays = document.querySelectorAll('.text-overlay');
-        console.log('Found', textOverlays.length, 'text overlays');
-        
-        textOverlays.forEach((n, i) => { 
-            if (n.parentElement !== textLayer) {
-                textLayer.appendChild(n); 
-                console.log(`Moved text overlay ${i} to text layer`);
-            } else {
-                console.log(`Text overlay ${i} already in text layer`);
-            }
-        });
-        
-        console.log('Text layer now contains', textLayer.children.length, 'elements');
-    }
-    
-    // Initial move
-    moveTextsToLayer();
-
-    // Create SVG mask positioned absolutely at container origin
-    let svg = document.getElementById('tile-mask-svg');
-    if (!svg) {
-        svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.id = 'tile-mask-svg';
-        svg.style.position = 'absolute';
-        svg.style.top = '0';
-        svg.style.left = '0';
-        svg.style.width = '100%';
-        svg.style.height = '100%';
-        svg.style.pointerEvents = 'none';
-        container.appendChild(svg);
-        
-        const defs = document.createElementNS(svg.namespaceURI, 'defs');
-        svg.appendChild(defs);
-        
-        const mask = document.createElementNS(svg.namespaceURI, 'mask');
-        mask.id = 'tile-mask';
-        mask.setAttribute('maskUnits', 'userSpaceOnUse');
-        defs.appendChild(mask);
-        
-        // Black background (hides everything)
-        const bg = document.createElementNS(svg.namespaceURI, 'rect');
-        bg.id = 'tile-mask-bg';
-        bg.setAttribute('fill', 'black');
-        mask.appendChild(bg);
-    }
-    
-    // Apply mask to text layer
-    textLayer.style.setProperty('-webkit-mask', 'url(#tile-mask)');
-    textLayer.style.setProperty('mask', 'url(#tile-mask)');
-    console.log('Applied mask to text layer');
-    
-    // Ensure texts are moved to the layer after mask is applied
-    setTimeout(() => {
-        moveTextsToLayer();
-    }, 100);
-    
-    // Also check for existing text overlays after a longer delay
-    setTimeout(() => {
-        moveTextsToLayer();
-    }, 1000);
-
-    // Build mask - handle stretched images properly
-    function buildMask() {
-        const mask = document.getElementById('tile-mask');
-        const bg = document.getElementById('tile-mask-bg');
-        const svg = document.getElementById('tile-mask-svg');
-        if (!mask || !bg || !svg) return;
-
-        // Clear previous white rects
-        [...mask.querySelectorAll('rect[data-tile]')].forEach(n => n.remove());
-
-        const containerRect = container.getBoundingClientRect();
-        
-        // Set SVG dimensions to match container size
-        svg.setAttribute('width', containerRect.width);
-        svg.setAttribute('height', containerRect.height);
-        svg.setAttribute('viewBox', `0 0 ${containerRect.width} ${containerRect.height}`);
-        
-        // Set mask background size
-        bg.setAttribute('x', 0);
-        bg.setAttribute('y', 0);
-        bg.setAttribute('width', containerRect.width);
-        bg.setAttribute('height', containerRect.height);
-
-        // Get ALL tiles and check their actual image sources
-        const allTiles = grid.querySelectorAll('.image-div');
-        console.log('Total tiles found:', allTiles.length);
-        
-        let occupiedCount = 0;
-        
-        allTiles.forEach((tile, i) => {
-            const img = tile.querySelector('img');
-            if (!img) return;
-            
-            const imgSrc = img.src || img.getAttribute('src') || '';
-            const isEmpty = imgSrc.includes('grey-back.png') || imgSrc.includes('grey-back') || imgSrc.includes('placeholder');
-            
-            // Only consider occupied if it has a real image (not grey placeholder)
-            if (!isEmpty && imgSrc.trim() !== '') {
-                const tileRect = tile.getBoundingClientRect();
-                const x = tileRect.left - containerRect.left - 1;
-                const y = tileRect.top - containerRect.top - 1;
-                
-                const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-                rect.setAttribute('x', x);
-                rect.setAttribute('y', y);
-                rect.setAttribute('width', tileRect.width);
-                rect.setAttribute('height', tileRect.height);
-                rect.setAttribute('rx', '7');
-                rect.setAttribute('ry', '7');
-                rect.setAttribute('fill', 'white'); // white = visible
-                rect.setAttribute('data-tile', '1');
-                mask.appendChild(rect);
-                occupiedCount++;
-                
-                console.log(`Tile ${i} OCCUPIED:`, imgSrc.split('/').pop());
-            } else {
-                console.log(`Tile ${i} EMPTY:`, imgSrc.split('/').pop());
-            }
-        });
-        
-        console.log('Mask built with', occupiedCount, 'occupied tiles');
-    }
-
-    // Wire updates - observe grid changes for mask rebuild
-    const gridObserver = new MutationObserver((mutations) => {
-        // Only rebuild mask if grid tiles change, not if text overlays are moved
-        const shouldRebuild = mutations.some(mutation => {
-            return Array.from(mutation.addedNodes).some(node => 
-                node.nodeType === 1 && node.classList && node.classList.contains('image-div')
-            ) || Array.from(mutation.removedNodes).some(node => 
-                node.nodeType === 1 && node.classList && node.classList.contains('image-div')
-            );
-        });
-        
-        if (shouldRebuild) {
-            buildMask();
-        }
-    });
-    
-    gridObserver.observe(grid, { childList: true, subtree: true, attributes: true });
-    
-    // Wire updates - observe for new text overlays
-    const textObserver = new MutationObserver((mutations) => {
-        let hasNewText = false;
-        mutations.forEach(mutation => {
-            Array.from(mutation.addedNodes).forEach(node => {
-                if (node.nodeType === 1 && node.classList && node.classList.contains('text-overlay')) {
-                    hasNewText = true;
-                }
-            });
-        });
-        
-        if (hasNewText) {
-            console.log('New text overlay detected, moving to text layer');
-            setTimeout(() => moveTextsToLayer(), 10);
-        }
-    });
-    
-    // Observe the container for new text overlays
-    textObserver.observe(container, { childList: true, subtree: true });
-    
-    window.addEventListener('resize', buildMask);
-    setTimeout(buildMask, 0);
-    
-    window.buildMask = buildMask;
-    window.moveTextsToLayer = moveTextsToLayer;
-    
-    // Debug function to check mask status
-    window.debugMask = function() {
-        console.log('=== MASK DEBUG ===');
-        console.log('Text layer exists:', !!textLayer);
-        console.log('Text layer children:', textLayer ? textLayer.children.length : 0);
-        console.log('Text layer mask:', textLayer ? getComputedStyle(textLayer).mask : 'N/A');
-        console.log('SVG mask exists:', !!document.getElementById('tile-mask'));
-        console.log('Mask rects:', document.querySelectorAll('#tile-mask rect[data-tile]').length);
-        console.log('Text overlays in DOM:', document.querySelectorAll('.text-overlay').length);
-        console.log('Text overlays in text layer:', textLayer ? textLayer.querySelectorAll('.text-overlay').length : 0);
-        
-        // Check mask background size
-        const bg = document.getElementById('tile-mask-bg');
-        if (bg) {
-            console.log('Mask background size:', bg.getAttribute('width'), 'x', bg.getAttribute('height'));
-        }
-        
-        // Check container size
-        const containerRect = container.getBoundingClientRect();
-        console.log('Container size:', containerRect.width, 'x', containerRect.height);
-        
-        // Check first few mask rects
-        const rects = document.querySelectorAll('#tile-mask rect[data-tile]');
-        console.log('First 3 mask rects:');
-        for (let i = 0; i < Math.min(3, rects.length); i++) {
-            const rect = rects[i];
-            console.log(`  Rect ${i}: x=${rect.getAttribute('x')}, y=${rect.getAttribute('y')}, w=${rect.getAttribute('width')}, h=${rect.getAttribute('height')}`);
-        }
-        
-        console.log('==================');
-    };
-    
-    // Debug function to show mask visually
-    window.showMaskDebug = function(show = true) {
-        let debugSvg = document.getElementById('mask-debug-visual');
-        if (!show) {
-            if (debugSvg) debugSvg.remove();
-            return;
-        }
-        
-        if (!debugSvg) {
-            debugSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            debugSvg.id = 'mask-debug-visual';
-            debugSvg.style.position = 'absolute';
-            debugSvg.style.top = '0';
-            debugSvg.style.left = '0';
-            debugSvg.style.width = '100%';
-            debugSvg.style.height = '100%';
-            debugSvg.style.pointerEvents = 'none';
-            debugSvg.style.zIndex = '9999';
-            container.appendChild(debugSvg);
-        }
-        
-        const containerRect = container.getBoundingClientRect();
-        debugSvg.setAttribute('viewBox', `0 0 ${containerRect.width} ${containerRect.height}`);
-        debugSvg.innerHTML = '';
-        
-        // Show mask background (black)
-        const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        bgRect.setAttribute('x', '0');
-        bgRect.setAttribute('y', '0');
-        bgRect.setAttribute('width', containerRect.width);
-        bgRect.setAttribute('height', containerRect.height);
-        bgRect.setAttribute('fill', 'rgba(0,0,0,0.3)');
-        debugSvg.appendChild(bgRect);
-        
-        // Show white rectangles (visible areas)
-        const maskRects = document.querySelectorAll('#tile-mask rect[data-tile]');
-        maskRects.forEach(rect => {
-            const debugRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            debugRect.setAttribute('x', rect.getAttribute('x'));
-            debugRect.setAttribute('y', rect.getAttribute('y'));
-            debugRect.setAttribute('width', rect.getAttribute('width'));
-            debugRect.setAttribute('height', rect.getAttribute('height'));
-            debugRect.setAttribute('rx', '7');
-            debugRect.setAttribute('ry', '7');
-            debugRect.setAttribute('fill', 'rgba(255,255,255,0.5)');
-            debugRect.setAttribute('stroke', 'red');
-            debugRect.setAttribute('stroke-width', '2');
-            debugSvg.appendChild(debugRect);
-        });
-        
-        console.log('Mask debug overlay shown. Call showMaskDebug(false) to hide.');
-    };
-})();

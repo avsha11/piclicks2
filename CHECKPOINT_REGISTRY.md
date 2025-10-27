@@ -13,7 +13,8 @@
 
 | # | Date | Title | Status | Description | Restore Command |
 |---|------|-------|--------|-------------|-----------------|
-| **002** | 2025-10-16 | **Print File Generation Fix** | ✅ **ACTIVE** | Fixed CollageServices and PrintFileService for proper print file generation | `robocopy "checkpoint_20251016_191603" "C:\xampp\htdocs\piclicks" /E /R:0 /W:0` |
+| **003** | 2025-10-20 | **Text Overlay and Filter Fixes** | ✅ **ACTIVE** | Fixed text overlay clipping issues and filter functionality | `robocopy "checkpoint_20251020_192550" "C:\xampp\htdocs\piclicks" /E /R:0 /W:0` |
+| **002** | 2025-10-16 | **Print File Generation Fix** | 📦 **ARCHIVED** | Fixed CollageServices and PrintFileService for proper print file generation | `robocopy "checkpoint_20251016_191603" "C:\xampp\htdocs\piclicks" /E /R:0 /W:0` |
 | **001** | 2025-10-05 | **Initial Working Application** | 📦 **ARCHIVED** | Fully functional PicLicks app with all fixes applied | `robocopy "working_piclicks_app" "C:\xampp\htdocs\piclicks" /E /COPYALL /R:0 /W:0` |
 | **000** | 2025-10-05 | **Reference Broken Version** | 📦 **ARCHIVED** | Original broken version for reference | `robocopy "reference_broken_version" "C:\xampp\htdocs\piclicks" /E /COPYALL /R:0 /W:0` |
 
@@ -21,13 +22,16 @@
 
 ## 🎯 Current Active Checkpoint Details
 
-### Checkpoint #002 - Print File Generation Fix
-- **Created**: October 16, 2025
+### Checkpoint #003 - Text Overlay and Filter Fixes
+- **Created**: October 20, 2025
 - **Status**: ✅ **FULLY FUNCTIONAL**
-- **Location**: `checkpoint_20251016_191603/`
+- **Location**: `checkpoint_20251020_192550/`
 - **Git Commit**: Latest commit with checkpoint
 
 #### ✅ What's Working:
+- ✅ Fixed text overlay clipping issues in editor
+- ✅ Fixed filter functionality (grayscale, sepia, brightness, etc.)
+- ✅ Proper text rendering on tiles
 - ✅ Fixed print file generation in CollageServices
 - ✅ Fixed PrintFileService processing
 - ✅ Proper tile counting and numbering
@@ -134,6 +138,6 @@ robocopy "checkpoint_001" "C:\xampp\htdocs\piclicks" /E /COPYALL /R:0 /W:0
 
 ---
 
-**Last Updated**: October 16, 2025  
-**Total Checkpoints**: 3  
-**Active Checkpoint**: #002 (checkpoint_20251016_191603)
+**Last Updated**: October 20, 2025  
+**Total Checkpoints**: 4  
+**Active Checkpoint**: #003 (checkpoint_20251020_192550)

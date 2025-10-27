@@ -1,0 +1,9 @@
+description: CSS rules for Bootstrap 5 with custom styles.
+globs: ["resources/css/**/*.css", "resources/sass/**/*.scss", "public/**/*.css"]
+alwaysApply: true
+
+- Prefer Bootstrap components/utilities; extend via small custom classes.
+- Avoid inline styles; keep CSS in files processed by Vite.
+- Keep selectors specific but not overly global; avoid !important unless justified.
+- Enforce responsive/mobile-first patterns.
+- Keep files modular; split large styles by feature or page.

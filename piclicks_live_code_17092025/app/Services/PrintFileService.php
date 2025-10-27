@@ -296,6 +296,12 @@ class PrintFileService
     
     /**
      * Apply filter to the canvas (SPEC.md filters)
+     * Improved approximations to match CSS filters as closely as possible
+     * 
+     * CSS to GD mapping notes:
+     * - contrast(X%) → IMG_FILTER_CONTRAST: 100% = 0, >100% = negative, <100% = positive
+     * - brightness(X%) → IMG_FILTER_BRIGHTNESS: 100% = 0, >100% = positive, <100% = negative
+     * - GD range: -255 to 255 for both
      */
     private function applyFilter($canvas, string $filter): void
     {
@@ -303,33 +309,58 @@ class PrintFileService
         
         switch ($filter) {
             case 'filter-noir':
+                // CSS: grayscale(100%) contrast(1.2) = grayscale(100%) contrast(120%)
                 imagefilter($canvas, IMG_FILTER_GRAYSCALE);
-                imagefilter($canvas, IMG_FILTER_CONTRAST, -10);
-                Log::info("Applied noir filter: grayscale + contrast");
+                imagefilter($canvas, IMG_FILTER_CONTRAST, -20); // 120% contrast = -20 in GD
+                Log::info("Applied noir filter", ['steps' => 'grayscale + contrast(120%)']);
                 break;
+                
             case 'filter-stark':
-                imagefilter($canvas, IMG_FILTER_CONTRAST, -15);
-                imagefilter($canvas, IMG_FILTER_BRIGHTNESS, 5);
-                Log::info("Applied stark filter: contrast + brightness");
+                // CSS: grayscale(50%) brightness(100%) contrast(90%)
+                // Apply partial grayscale by reducing saturation
+                imagefilter($canvas, IMG_FILTER_CONTRAST, 10); // 90% contrast = +10 in GD
+                imagefilter($canvas, IMG_FILTER_COLORIZE, 0, 0, 0, 64); // 50% desaturation
+                Log::info("Applied stark filter", ['steps' => 'contrast(90%) + desaturate(50%)']);
                 break;
+                
             case 'filter-scandi':
-                imagefilter($canvas, IMG_FILTER_COLORIZE, 20, 10, 0, 0);
-                Log::info("Applied scandi filter: warm colorize");
+                // CSS: brightness(120%) contrast(105%) grayscale(10%) hue-rotate(5deg)
+                imagefilter($canvas, IMG_FILTER_BRIGHTNESS, 20); // 120% brightness = +20
+                imagefilter($canvas, IMG_FILTER_CONTRAST, -5); // 105% contrast = -5
+                // Slight warm tint for hue-rotate simulation
+                imagefilter($canvas, IMG_FILTER_COLORIZE, 15, 8, -5, 0);
+                Log::info("Applied scandi filter", ['steps' => 'brightness(120%) + contrast(105%) + warm tint']);
                 break;
+                
             case 'filter-capri':
-                imagefilter($canvas, IMG_FILTER_COLORIZE, 0, 10, 25, 0);
-                Log::info("Applied capri filter: blue colorize");
+                // CSS: contrast(120%) brightness(110%) saturate(150%) hue-rotate(-30deg)
+                imagefilter($canvas, IMG_FILTER_CONTRAST, -20); // 120% contrast = -20
+                imagefilter($canvas, IMG_FILTER_BRIGHTNESS, 10); // 110% brightness = +10
+                // Blue/cyan tint for hue-rotate(-30deg)
+                imagefilter($canvas, IMG_FILTER_COLORIZE, -15, 5, 35, 0);
+                Log::info("Applied capri filter", ['steps' => 'contrast(120%) + brightness(110%) + cool tint']);
                 break;
+                
             case 'filter-nordic':
+                // CSS: contrast(110%) brightness(80%) sepia(20%) hue-rotate(-15deg)
+                imagefilter($canvas, IMG_FILTER_CONTRAST, -10); // 110% contrast = -10
+                imagefilter($canvas, IMG_FILTER_BRIGHTNESS, -20); // 80% brightness = -20
+                // Sepia + slight cool tint
                 imagefilter($canvas, IMG_FILTER_GRAYSCALE);
-                imagefilter($canvas, IMG_FILTER_COLORIZE, 25, 20, 15, 0);
-                Log::info("Applied nordic filter: grayscale + warm colorize");
+                imagefilter($canvas, IMG_FILTER_COLORIZE, 30, 25, 15, 0); // Warm sepia tone
+                Log::info("Applied nordic filter", ['steps' => 'contrast(110%) + brightness(80%) + sepia']);
                 break;
+                
             case 'filter-belveder':
+                // CSS: contrast(115%) brightness(90%) sepia(30%) hue-rotate(10deg)
+                imagefilter($canvas, IMG_FILTER_CONTRAST, -15); // 115% contrast = -15
+                imagefilter($canvas, IMG_FILTER_BRIGHTNESS, -10); // 90% brightness = -10
+                // Stronger sepia tone
                 imagefilter($canvas, IMG_FILTER_GRAYSCALE);
-                imagefilter($canvas, IMG_FILTER_COLORIZE, 90, 55, 30, 0);
-                Log::info("Applied belveder filter: grayscale + sepia colorize");
+                imagefilter($canvas, IMG_FILTER_COLORIZE, 100, 60, 35, 0); // Rich sepia tone
+                Log::info("Applied belveder filter", ['steps' => 'contrast(115%) + brightness(90%) + rich sepia']);
                 break;
+                
             default:
                 Log::warning("Unknown filter", ['filter' => $filter]);
                 break;
@@ -343,7 +374,7 @@ class PrintFileService
      */
     private function renderText($canvas, array $textOverlays, int $blockClearW, int $blockClearH): void
     {
-        foreach ($textOverlays as $textOverlay) {
+        foreach ($textOverlays as $idx => $textOverlay) {
             $text = $textOverlay['text'] ?? '';
             if (empty($text)) continue;
             
@@ -353,6 +384,16 @@ class PrintFileService
             $color = $textOverlay['color'] ?? '#000000';
             $fontFamily = $textOverlay['font_family'] ?? 'Arial';
             $rotation = floatval($textOverlay['rotation'] ?? 0);
+            
+            Log::info("Rendering text overlay", [
+                'index' => $idx,
+                'text' => substr($text, 0, 20) . (strlen($text) > 20 ? '...' : ''),
+                'position' => "{$x},{$y} (with bleed: +{$this->bleedPx}px)",
+                'font_size' => $fontSize,
+                'color' => $color,
+                'rotation' => "{$rotation}°",
+                'font_family' => $fontFamily
+            ]);
             
             // Convert hex color to RGB
             $rgb = $this->hexToRgb($color);
@@ -365,16 +406,38 @@ class PrintFileService
                 if ($rotation != 0) {
                     // Render rotated text
                     $this->renderRotatedText($canvas, $text, $fontPath, $fontSize, $textColor, $x, $y, $rotation);
+                    Log::info("Text rendered with rotation", [
+                        'text' => substr($text, 0, 20), 
+                        'rotation' => "{$rotation}°",
+                        'font' => $fontPath
+                    ]);
                 } else {
                     imagettftext($canvas, $fontSize, 0, $x, $y, $textColor, $fontPath, $text);
+                    Log::info("Text rendered (no rotation)", [
+                        'text' => substr($text, 0, 20),
+                        'font' => basename($fontPath)
+                    ]);
                 }
             } else {
-                // Fallback to built-in font (no rotation support)
-                imagestring($canvas, 5, $x, $y, $text, $textColor);
+                // CRITICAL ERROR: No TTF font available at all
+                // Draw a visible error message
+                $errorText = "FONT ERROR: " . $text;
+                imagestring($canvas, 5, $x, $y, $errorText, $textColor);
+                
+                // Also draw a red rectangle to make it obvious there's a problem
+                $red = imagecolorallocate($canvas, 255, 0, 0);
+                imagerectangle($canvas, $x - 5, $y - 5, $x + (strlen($errorText) * 8), $y + 15, $red);
+                
+                Log::error("CRITICAL: No TTF font found, using GD built-in (will be invisible)", [
+                    'text' => substr($text, 0, 20),
+                    'requested_font' => $fontFamily,
+                    'searched_path' => $fontPath ?? 'N/A',
+                    'message' => 'Check that C:/Windows/Fonts/ contains arial.ttf'
+                ]);
             }
         }
         
-        Log::info("Text rendered", ['count' => count($textOverlays)]);
+        Log::info("Text rendering completed", ['total_overlays' => count($textOverlays)]);
     }
     
     /**
@@ -607,30 +670,40 @@ class PrintFileService
     
     /**
      * Get font file path for a given font family
+     * Always returns a valid font path (fallback to Arial if font not found)
      */
     private function getFontPath(string $fontFamily): ?string
     {
         $fontDirectories = [
+            'C:/Windows/Fonts/',
             '/usr/share/fonts/',
             '/usr/local/share/fonts/',
             '/System/Library/Fonts/',
-            'C:/Windows/Fonts/',
             storage_path('fonts/'),
         ];
         
         $fontMappings = [
-            'Arial' => ['arial.ttf', 'Arial.ttf', 'arial.ttc'],
+            'Arial' => ['arial.ttf', 'Arial.ttf', 'ARIAL.TTF', 'arial.ttc'],
             'Helvetica' => ['Helvetica.ttf', 'helvetica.ttf'],
-            'Times New Roman' => ['times.ttf', 'Times.ttf', 'times.ttc'],
-            'Georgia' => ['Georgia.ttf', 'georgia.ttf'],
-            'Verdana' => ['verdana.ttf', 'Verdana.ttf'],
-            'Courier New' => ['cour.ttf', 'Courier.ttf'],
+            'Times New Roman' => ['times.ttf', 'Times.ttf', 'times.ttc', 'TIMES.TTF'],
+            'Georgia' => ['Georgia.ttf', 'georgia.ttf', 'GEORGIA.TTF'],
+            'Verdana' => ['verdana.ttf', 'Verdana.ttf', 'VERDANA.TTF'],
+            'Courier New' => ['cour.ttf', 'Courier.ttf', 'COUR.TTF'],
+            'Brush Script MT' => ['BRUSHSCI.TTF', 'brushsci.ttf', 'BrushScriptMT.ttf'],
+            'Comic Sans MS' => ['comic.ttf', 'Comic.ttf', 'COMIC.TTF'],
+            'Impact' => ['impact.ttf', 'Impact.ttf', 'IMPACT.TTF'],
+            'Tahoma' => ['tahoma.ttf', 'Tahoma.ttf', 'TAHOMA.TTF'],
         ];
         
+        // Try to find the requested font
         $fontFiles = $fontMappings[$fontFamily] ?? [
+            // Remove spaces and try common patterns
+            str_replace(' ', '', strtolower($fontFamily)) . '.ttf',
+            str_replace(' ', '', $fontFamily) . '.ttf',
             strtolower($fontFamily) . '.ttf',
             $fontFamily . '.ttf',
-            strtolower($fontFamily) . '.otf',
+            strtoupper(str_replace(' ', '', $fontFamily)) . '.TTF',
+            str_replace(' ', '', strtolower($fontFamily)) . '.otf',
             $fontFamily . '.otf',
         ];
         
@@ -639,12 +712,30 @@ class PrintFileService
                 foreach ($fontFiles as $fontFile) {
                     $fontPath = $directory . $fontFile;
                     if (file_exists($fontPath)) {
+                        Log::info("Font found", ['font' => $fontFamily, 'path' => $fontPath]);
                         return $fontPath;
                     }
                 }
             }
         }
         
+        // FALLBACK: Try to find Arial (should exist on Windows/Mac/Linux)
+        Log::warning("Requested font not found, trying Arial fallback", ['requested' => $fontFamily]);
+        $arialFiles = ['arial.ttf', 'Arial.ttf', 'ARIAL.TTF', 'arial.ttc'];
+        foreach ($fontDirectories as $directory) {
+            if (is_dir($directory)) {
+                foreach ($arialFiles as $fontFile) {
+                    $fontPath = $directory . $fontFile;
+                    if (file_exists($fontPath)) {
+                        Log::info("Using Arial fallback", ['path' => $fontPath]);
+                        return $fontPath;
+                    }
+                }
+            }
+        }
+        
+        // If even Arial doesn't exist, return null (will use GD built-in font)
+        Log::error("No TTF fonts found (not even Arial!)", ['directories_checked' => $fontDirectories]);
         return null;
     }
 }

@@ -329,10 +329,22 @@ class CollageServices
 
             $this->DesignCollageRepository->updateMaster(['unique_id' => $request->unique_id], ['total_tiles' => $total_tiles]);
 
+            // DEBUG: Log what type we received
+            Log::info("CollageServices.saveCollage - Type check", [
+                'unique_id' => $request->unique_id,
+                'type_received' => $request->type ?? 'NULL',
+                'will_generate_print_files' => in_array($request->type, ['preview', 'manual_admin']) ? 'YES' : 'NO'
+            ]);
+
             // Generate print files if this is a preview/admin save
             if (in_array($request->type, ['preview', 'manual_admin'])) {
                 Log::info("Generating print files for collage", ['unique_id' => $request->unique_id, 'type' => $request->type]);
                 $this->generatePrintFilesForCollage($request->unique_id, $master_data);
+            } else {
+                Log::warning("Skipping print file generation - type mismatch", [
+                    'received_type' => $request->type ?? 'NULL',
+                    'expected' => "['preview', 'manual_admin']"
+                ]);
             }
 
             return response()->json(['status' => 1, 'message' => 'Saved successfully', 'data' => ['updateIds' => $updateIds]]);
@@ -1054,6 +1066,16 @@ class CollageServices
                     'position' => "row:{$startRow}, col:{$startCol}"
                 ]);
                 
+                // Filter and adjust text overlays for this specific tile
+                $tileTextOverlays = $this->getTextOverlaysForTile(
+                    $textOverlays,
+                    $startCol,
+                    $startRow,
+                    $cols,
+                    $rows,
+                    $masterdata
+                );
+                
                 // Build block configuration for PrintFileService
                 $blockConfig = [
                     'image_path' => $tile->image_edited,
@@ -1068,7 +1090,7 @@ class CollageServices
                         'color_hex' => stripos($masterdata->frame ?? '', 'black') !== false ? '#000000' : '#ffffff',
                     ],
                     'filter' => $masterdata->filter ?? null,
-                    'text_overlays' => $textOverlays,
+                    'text_overlays' => $tileTextOverlays, // Only text relevant to this tile
                 ];
                 
                 // Generate print files using the new service
@@ -1101,6 +1123,99 @@ class CollageServices
                 'trace' => $e->getTraceAsString()
             ]);
         }
+    }
+    
+    /**
+     * Get text overlays that appear on a specific tile
+     * Adjusts global text positions to be relative to the tile
+     */
+    private function getTextOverlaysForTile(
+        array $globalTextOverlays,
+        int $tileStartCol,
+        int $tileStartRow,
+        int $tileCols,
+        int $tileRows,
+        $masterdata
+    ): array {
+        if (empty($globalTextOverlays)) {
+            return [];
+        }
+        
+        // Get grid dimensions from masterdata
+        $gridColumns = intval($masterdata->grid_columns ?? 5);
+        $gridRows = intval($masterdata->grid_rows ?? 5);
+        
+        // Editor tile dimensions (approximate - these are CSS pixels in the editor)
+        // The editor uses a fixed canvas size, typically around 600-800px wide
+        // We'll estimate based on typical editor dimensions
+        $editorCanvasWidth = 750; // Typical editor canvas width
+        $editorCanvasHeight = 750; // Typical editor canvas height
+        
+        $editorTileWidth = $editorCanvasWidth / $gridColumns;
+        $editorTileHeight = $editorCanvasHeight / $gridRows;
+        
+        // Calculate this tile's bounding box in global editor coordinates
+        $tileLeft = $tileStartCol * $editorTileWidth;
+        $tileTop = $tileStartRow * $editorTileHeight;
+        $tileRight = $tileLeft + ($tileCols * $editorTileWidth);
+        $tileBottom = $tileTop + ($tileRows * $editorTileHeight);
+        
+        Log::info("Tile bounding box in editor coordinates", [
+            'tile_position' => "col:{$tileStartCol}, row:{$tileStartRow}",
+            'tile_size' => "{$tileCols}x{$tileRows}",
+            'bounds' => "left:{$tileLeft}, top:{$tileTop}, right:{$tileRight}, bottom:{$tileBottom}"
+        ]);
+        
+        $tileTextOverlays = [];
+        
+        foreach ($globalTextOverlays as $textOverlay) {
+            $textX = intval($textOverlay['x'] ?? 0);
+            $textY = intval($textOverlay['y'] ?? 0);
+            $fontSize = intval($textOverlay['font_size'] ?? 40);
+            $text = $textOverlay['text'] ?? '';
+            
+            // Estimate text bounding box (rough approximation)
+            // Font size in editor is roughly equal to height in pixels
+            // Width is approximately textLength * fontSize * 0.6 (average character width ratio)
+            $textWidth = strlen($text) * ($fontSize / 2.5) * 0.6; // Divide by 2.5 because font_size is already scaled
+            $textHeight = $fontSize / 2.5;
+            
+            $textRight = $textX + $textWidth;
+            $textBottom = $textY + $textHeight;
+            
+            // Check if text bounding box intersects with tile bounding box
+            $intersects = !(
+                $textRight < $tileLeft ||    // Text is completely to the left
+                $textX > $tileRight ||        // Text is completely to the right
+                $textBottom < $tileTop ||     // Text is completely above
+                $textY > $tileBottom          // Text is completely below
+            );
+            
+            if ($intersects) {
+                // Adjust text position to be relative to this tile (not global)
+                $adjustedTextOverlay = $textOverlay;
+                $adjustedTextOverlay['x'] = $textX - $tileLeft;
+                $adjustedTextOverlay['y'] = $textY - $tileTop;
+                
+                Log::info("Text overlay included on this tile", [
+                    'text' => substr($text, 0, 20),
+                    'global_pos' => "x:{$textX}, y:{$textY}",
+                    'tile_relative_pos' => "x:{$adjustedTextOverlay['x']}, y:{$adjustedTextOverlay['y']}",
+                    'tile' => "col:{$tileStartCol}, row:{$tileStartRow}"
+                ]);
+                
+                $tileTextOverlays[] = $adjustedTextOverlay;
+            } else {
+                Log::info("Text overlay excluded from this tile (no intersection)", [
+                    'text' => substr($text, 0, 20),
+                    'text_bounds' => "x:{$textX}-{$textRight}, y:{$textY}-{$textBottom}",
+                    'tile_bounds' => "x:{$tileLeft}-{$tileRight}, y:{$tileTop}-{$tileBottom}",
+                    'tile' => "col:{$tileStartCol}, row:{$tileStartRow}"
+                ]);
+            }
+        }
+        
+        return $tileTextOverlays;
     }
     
     /**

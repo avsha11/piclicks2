@@ -1,0 +1,8 @@
+description: Livewire usage rules (for reactive components).
+alwaysApply: true
+
+- Use Livewire for server-driven interactivity (forms, cart, filters).
+- Keep Livewire components small; split when they grow.
+- Validate in Livewire components; emit events rather than mixing heavy JS.
+- Avoid conflicting DOM manipulation between Livewire and jQuery; coordinate via events.
+- Test Livewire actions for key flows.

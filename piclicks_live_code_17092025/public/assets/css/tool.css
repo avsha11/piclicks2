@@ -229,16 +229,6 @@
     width: max-content;
 }
 
-/* Ensure text overlay is clipped by the grid container */
-.tool-inner {
-    overflow: hidden;
-    position: relative;
-}
-
-#preview-grid {
-    position: relative;
-}
-
 .text-remove {
     position: absolute;
     bottom: -9px;

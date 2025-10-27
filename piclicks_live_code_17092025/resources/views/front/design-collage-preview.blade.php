@@ -52,18 +52,9 @@
             overflow: visible;
         }
         
-        /* Background color that shows through gaps in clipped tiles 
-           Note: This background is for UI/display purposes only. */
+        /* Background color that shows through gaps in clipped tiles */
         #preview-grid {
             background: #f1f1f1;
-            /* Remove gaps between tiles on preview page to show continuous stretched images */
-            gap: 0 !important;
-        }
-        
-        /* Ensure text overlay is clipped by the grid container on preview page */
-        .tool-inner {
-            overflow: hidden !important;
-            position: relative;
         }
 
         .text-content {
