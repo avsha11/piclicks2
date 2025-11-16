@@ -1,7 +1,7 @@
 # SPEC
 
 ## Terms
-- **Clear area**: The visible rounded rectangle in the Editor/Preview.  
+- **Clear area**: The visible tile rounded rectangle in the Editor/Preview.  
 - **With bleed**: Clear area plus **2 mm hidden bleed** (used in print files).
 
 ## Key constants
@@ -28,8 +28,8 @@
    - Export per tile by rendering the **block** over its full span (with bleed), then **crop** the tile’s subsection.
 
 4. **Render order (top→bottom)**
-   1) Frame (incl. bleed)  
-   2) Text (incl. bleed)  
+   1) Text (incl. bleed) 
+   2) Frame (incl. bleed)   
    3) Style filter (applied to image)  
    4) Image (incl. bleed)
 

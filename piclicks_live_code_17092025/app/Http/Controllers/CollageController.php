@@ -8,14 +8,22 @@ use Illuminate\Http\Request;
 use App\Http\Requests\{SaveUploadPhotosRequest, CollageRequest};
 use App\Services\CollageServices;
 use App\Services\Admin\FrameServices;
+use App\Services\PreviewRenderer;
+use App\Services\PrintFileService;
 use App\Repository\Eloquent\DesignCollageRepository;
 use App\Repository\Admin\{CollectionRepository, TagRepository};
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Str;
 
 use Illuminate\Support\Facades\DB;
 
 class CollageController extends Controller
 {
+    private const PREVIEW_TILE_TARGET_WIDTH = 91;
+    private const PREVIEW_TILE_TARGET_HEIGHT = 80; // Derived from clear tile proportions
+    private const PREVIEW_TILE_GAP = 2;
+    private const PREVIEW_CORNER_RADIUS = 8;
+
     protected $CollageServices, $DesignCollageRepository, $FrameServices, $TagRepository, $CollectionRepository;
     public function __construct(TagRepository $TagRepository, CollectionRepository $CollectionRepository, CollageServices $CollageServices, DesignCollageRepository $DesignCollageRepository, FrameServices $frameServices)
     {
@@ -366,6 +374,115 @@ class CollageController extends Controller
     // preview design collage
 
     function previewDesignCollage(Request $request)
+    {
+        try {
+            $unique_id = $request->unique_id;
+            $designCollagePreviewData = $this->DesignCollageRepository->getOneMaster(['unique_id' => $unique_id, 'status' => 0]);
+            $imagesCollection = $this->DesignCollageRepository->getByWhere(['unique_id' => $unique_id, 'is_deleted' => 0], ['seq' => 'asc']);
+            $images = $imagesCollection ? $imagesCollection->toArray() : [];
+
+            if (empty($designCollagePreviewData) || empty($images)) {
+                return redirect()
+                    ->route('front.upload-photos')
+                    ->with(['images_empty_error' => 'Collage not found, try again.']);
+            }
+
+            $designDataArray = $designCollagePreviewData instanceof \Illuminate\Database\Eloquent\Model
+                ? $designCollagePreviewData->toArray()
+                : (array) $designCollagePreviewData;
+
+            $previewRenderer = new PreviewRenderer();
+            $designDataArray['unique_id'] = $designDataArray['unique_id'] ?? $unique_id;
+            $previewResult = $previewRenderer->render($designDataArray, $images);
+            $previewPath = $previewResult['path'] ?? null;
+
+            if (!$previewPath) {
+                throw new \Exception('Failed to generate preview collage image.');
+            }
+
+            $collageFullPath = storage_path('app/public/' . $previewPath);
+            if (!file_exists($collageFullPath)) {
+                throw new \Exception('Preview collage image not found at: ' . $collageFullPath);
+            }
+
+            $livingBackgroundPath = public_path('/assets/images/preview_livingroom.png');
+            $kitchenBackgroundPath = public_path('/assets/images/preview_kitchen.png');
+
+            $livingBackground = $this->loadPreviewBackground($livingBackgroundPath);
+            $kitchenBackground = $this->loadPreviewBackground($kitchenBackgroundPath);
+
+            if (!$livingBackground || !$kitchenBackground) {
+                throw new \Exception('Failed to load preview background images.');
+            }
+
+            $collageResource = imagecreatefrompng($collageFullPath);
+            if (!$collageResource) {
+                throw new \Exception('Unable to load generated collage PNG.');
+            }
+
+            $baseScaleFactor = $this->determineBaseScale($previewResult['cols'] ?? 1, $previewResult['rows'] ?? 1);
+
+            $mergedImage1 = $this->composePreviewScene(
+                $livingBackground,
+                $collageResource,
+                $unique_id,
+                '-1',
+                [
+                    'margin_left_ratio' => 0.15,
+                    'margin_top_ratio' => 0.08,
+                    'max_width_ratio' => 0.55,
+                    'max_height_ratio' => 0.6,
+                    'tile_height_px' => $previewResult['tile_height'] ?? 0,
+                    'output_format' => 'png',
+                ],
+                $baseScaleFactor
+            );
+
+            $mergedImage2 = $this->composePreviewScene(
+                $kitchenBackground,
+                $collageResource,
+                $unique_id,
+                '-2',
+                [
+                    'margin_left_ratio' => 0.08,
+                    'margin_bottom_ratio' => 0.35,
+                    'max_width_ratio' => 0.55,
+                    'max_height_ratio' => 0.6,
+                    'align_bottom' => true,
+                    'tile_height_px' => $previewResult['tile_height'] ?? 0,
+                    'offset_down_tiles' => 0.5,
+                    'output_format' => 'jpg',
+                ],
+                $baseScaleFactor
+            );
+
+            imagedestroy($collageResource);
+
+            $occupiedTilesCount = $this->calculateOccupiedTiles($images);
+            $designDataArray['total_tiles'] = $occupiedTilesCount;
+
+            Log::info("Preview page tile count", [
+                'unique_id' => $unique_id,
+                'occupied_tiles' => $occupiedTilesCount,
+                'total_images' => count($images),
+            ]);
+
+            return view('front.design-collage-preview', [
+                'designCollagePreviewData' => $designDataArray,
+                'images' => $images,
+                'mergedImage1' => $mergedImage1,
+                'mergedImage2' => $mergedImage2,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error in CollageController/previewDesignCollage: ' . $e->getMessage() . ' in line ' . $e->getLine() . ' | Stack: ' . $e->getTraceAsString());
+
+            return redirect()
+                ->route('front.upload-photos')
+                ->with(['error' => 'Unable to generate preview. Please try again or contact support. Error: ' . $e->getMessage()]);
+        }
+    }
+
+    function previewDesignCollageLegacy(Request $request)
     {
         try {
             // dd(getUserCartItems());
@@ -864,6 +981,147 @@ class CollageController extends Controller
                 ->back()
                 ->with('gallery_edit_error', 'Error duplicating collage: ' . $e->getMessage());
         }
+    }
+
+    private function loadPreviewBackground(string $path)
+    {
+        if (!file_exists($path)) {
+            Log::error('Preview background not found', ['path' => $path]);
+            return null;
+        }
+
+        $image = @imagecreatefrompng($path);
+        if (!$image) {
+            $image = @imagecreatefromjpeg($path);
+        }
+
+        if (!$image) {
+            Log::error('Failed to load preview background', ['path' => $path]);
+        }
+
+        return $image;
+    }
+
+    private function determineBaseScale(int $cols, int $rows): float
+    {
+        $varr = max($cols, $rows);
+        if ($varr <= 4) {
+            $base = 1.54;
+        } elseif ($varr <= 6) {
+            $base = 1.26;
+        } elseif ($varr <= 8) {
+            $base = 0.98;
+        } else {
+            $base = 0.7;
+        }
+
+        return max(0.1, $base * 0.75);
+    }
+
+    private function composePreviewScene($background, $collage, string $uniqueId, string $suffix, array $options, float $baseScaleFactor): string
+    {
+        $bgWidth = imagesx($background);
+        $bgHeight = imagesy($background);
+        $imgWidth = imagesx($collage);
+        $imgHeight = imagesy($collage);
+
+        $marginLeft = intval($bgWidth * ($options['margin_left_ratio'] ?? 0));
+        $marginRight = intval($bgWidth * ($options['margin_right_ratio'] ?? 0));
+        $marginTop = intval($bgHeight * ($options['margin_top_ratio'] ?? 0));
+        $marginBottom = intval($bgHeight * ($options['margin_bottom_ratio'] ?? 0));
+
+        $availWidth = $bgWidth - $marginLeft - $marginRight;
+        $availHeight = $bgHeight - $marginTop - $marginBottom;
+
+        $maxWidth = intval($bgWidth * ($options['max_width_ratio'] ?? 1.0));
+        $maxHeight = intval($bgHeight * ($options['max_height_ratio'] ?? 1.0));
+
+        $scale = $baseScaleFactor > 0 ? $baseScaleFactor : 1.0;
+
+        $finalW = intval($imgWidth * $scale);
+        $finalH = intval($imgHeight * $scale);
+
+        $scaleLimit = min(
+            $availWidth / $imgWidth,
+            $availHeight / $imgHeight,
+            $maxWidth / $imgWidth,
+            $maxHeight / $imgHeight,
+            1
+        );
+
+        if ($finalW > $availWidth || $finalH > $availHeight || $finalW > $maxWidth || $finalH > $maxHeight || $scaleLimit < $scale) {
+            $scale = $scaleLimit;
+            $finalW = intval($imgWidth * $scale);
+            $finalH = intval($imgHeight * $scale);
+        }
+
+        $destX = $marginLeft + intval(($availWidth - $finalW) / 2);
+        if (!empty($options['align_left'])) {
+            $destX = $marginLeft;
+        } elseif (!empty($options['align_right'])) {
+            $destX = $bgWidth - $marginRight - $finalW;
+        }
+
+        $destY = $marginTop + intval(($availHeight - $finalH) / 2);
+        if (!empty($options['align_bottom'])) {
+            $destY = $bgHeight - $marginBottom - $finalH;
+        } elseif (!empty($options['align_top'])) {
+            $destY = $marginTop;
+        }
+
+        if (!empty($options['offset_down_tiles']) && !empty($options['tile_height_px'])) {
+            $tileHeightPx = floatval($options['tile_height_px']);
+            $offsetTiles = floatval($options['offset_down_tiles']);
+            if ($tileHeightPx > 0 && $offsetTiles !== 0.0) {
+                $offsetPx = intval($tileHeightPx * $scale * $offsetTiles);
+                $maxY = $bgHeight - $finalH;
+                $destY = min($maxY, $destY + $offsetPx);
+            }
+        }
+
+        $scaled = imagecreatetruecolor($finalW, $finalH);
+        imagealphablending($scaled, false);
+        imagesavealpha($scaled, true);
+        $transparent = imagecolorallocatealpha($scaled, 0, 0, 0, 127);
+        imagefilledrectangle($scaled, 0, 0, $finalW, $finalH, $transparent);
+        imagecopyresampled($scaled, $collage, 0, 0, 0, 0, $finalW, $finalH, $imgWidth, $imgHeight);
+
+        imagecopy($background, $scaled, $destX, $destY, 0, 0, $finalW, $finalH);
+        imagedestroy($scaled);
+
+        $timestamp = time();
+        $extension = $options['output_format'] ?? 'png';
+        $relativePath = 'temp/collage_merged_' . $uniqueId . $suffix . '_' . $timestamp . '.' . $extension;
+        $fullPath = storage_path('app/public/' . $relativePath);
+
+        if ($extension === 'jpg' || $extension === 'jpeg') {
+            imagejpeg($background, $fullPath, 85);
+        } else {
+            imagepng($background, $fullPath, 9);
+        }
+
+        imagedestroy($background);
+
+        return asset('storage/' . $relativePath);
+    }
+
+    private function totalCount(int $count): int
+    {
+        return match ($count) {
+            0, 1 => 1,
+            2 => 2,
+            3 => 3,
+            4 => 3,
+            6 => 4,
+            8 => 5,
+            10 => 6,
+            12 => 7,
+            14 => 8,
+            16 => 9,
+            18 => 10,
+            20 => 11,
+            default => 1,
+        };
     }
 
     /**

@@ -399,7 +399,13 @@ document.addEventListener("DOMContentLoaded", function () {
                             $(".image-container").find("svg").remove();
                         }
                         // Apply clip-path for image editor modal
-                        const { svg, clipPathId } = createTileClipPath(viewportWidth, viewportHeight, hei, wid);
+                        const { svg, clipPathId } = createTileClipPath(
+                            viewportWidth,
+                            viewportHeight,
+                            hei,
+                            wid,
+                            { mode: "container" }
+                        );
                         $(".image-container").append(svg);
                         $(".image-container")[0].style.clipPath = `url(#${clipPathId})`;
                         $(".image-container")[0].dataset.clipPathId = clipPathId;
@@ -912,9 +918,6 @@ document.addEventListener("DOMContentLoaded", function () {
         let grid_cols = Math.round(tileWidth / actualWidth);
         let grid_rows = Math.round(tileHeight / actualHeight);
         if (grid_cols !== 1 || grid_rows !== 1) {
-            if (currentFrame !== '') {
-                tile.classList.remove(currentFrame);
-            }
             // Apply clip-path for stretched images
             const { svg, clipPathId } = createTileClipPath(tileWidth, tileHeight, grid_rows, grid_cols);
             $(tile).find('svg').remove(); // Remove old SVG if exists
@@ -1637,9 +1640,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     // placeTiles(); // Recalculate grid layout
                     tile.find("svg").remove();
                     if (newW !== 1 || newH !== 1) {
-                        if (currentFrame !== '') {
-                            tile[0].classList.remove(currentFrame);
-                        }
                         // Apply clip-path for layout stretched images
                         const { svg, clipPathId } = createTileClipPath((actualWidth * newW) + marginW, (actualHeight * newH) + marginH, newH, newW);
                         tile.append(svg);
@@ -1726,9 +1726,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     $tile.attr("data-margin", marginW + "|" + marginH);
                     $tile.find("svg").remove();
                     if (newW !== 1 || newH !== 1) {
-                        if (currentFrame !== '') {
-                            $tile.classList.remove(currentFrame);
-                        }
                         // Apply clip-path for dynamic layout stretched images
                         const { svg, clipPathId } = createTileClipPath(
                             (actualWidth * newW) + marginW,
@@ -2061,18 +2058,13 @@ function openTextPopup() {
     $("#Text_popup").modal('show');
 }
 
-function createTileClipPath(width, height, rows, columns) {
+function createTileClipPath(width, height, rows, columns, options = {}) {
+    const { mode = "tiles" } = options;
     // Generate unique clipPath ID
     const clipPathId = `tile-clip-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
     const svgNS = "http://www.w3.org/2000/svg";
     const cornerRadius = 8; // R=8px per tile (matches SPEC.md clear area radius)
-    
-    // Use absolute tile dimensions (not proportional division)
-    // This creates natural gaps between tiles
-    const tileW = actualWidth;    // 91px
-    const tileH = actualHeight;   // 80px
-    const gap = actualMargin;     // 2px
     
     // Create hidden SVG with clipPath definition
     const svg = document.createElementNS(svgNS, "svg");
@@ -2086,19 +2078,36 @@ function createTileClipPath(width, height, rows, columns) {
     clipPath.setAttribute("id", clipPathId);
     clipPath.setAttribute("clipPathUnits", "userSpaceOnUse");
     
-    // Create a rounded rect for each tile in the grid
-    // Position each tile at exact pixel coordinates with gaps
-    for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < columns; c++) {
-            const rect = document.createElementNS(svgNS, "rect");
-            // Absolute positioning: each tile at (col × (tileW + gap), row × (tileH + gap))
-            rect.setAttribute("x", c * (tileW + gap));
-            rect.setAttribute("y", r * (tileH + gap));
-            rect.setAttribute("width", tileW);
-            rect.setAttribute("height", tileH);
-            rect.setAttribute("rx", cornerRadius);
-            rect.setAttribute("ry", cornerRadius);
-            clipPath.appendChild(rect);
+    if (mode === "container") {
+        const rect = document.createElementNS(svgNS, "rect");
+        rect.setAttribute("x", 0);
+        rect.setAttribute("y", 0);
+        rect.setAttribute("width", width);
+        rect.setAttribute("height", height);
+        rect.setAttribute("rx", cornerRadius);
+        rect.setAttribute("ry", cornerRadius);
+        clipPath.appendChild(rect);
+    } else {
+        // Use absolute tile dimensions (not proportional division)
+        // This creates natural gaps between tiles
+        const tileW = actualWidth; // 91px
+        const tileH = actualHeight; // 80px
+        const gap = actualMargin; // 2px
+
+        // Create a rounded rect for each tile in the grid
+        // Position each tile at exact pixel coordinates with gaps
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < columns; c++) {
+                const rect = document.createElementNS(svgNS, "rect");
+                // Absolute positioning: each tile at (col × (tileW + gap), row × (tileH + gap))
+                rect.setAttribute("x", c * (tileW + gap));
+                rect.setAttribute("y", r * (tileH + gap));
+                rect.setAttribute("width", tileW);
+                rect.setAttribute("height", tileH);
+                rect.setAttribute("rx", cornerRadius);
+                rect.setAttribute("ry", cornerRadius);
+                clipPath.appendChild(rect);
+            }
         }
     }
     

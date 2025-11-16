@@ -275,24 +275,30 @@
                         </p>
                         <!-- Buttons -->
                         <div class="d-flex flex-column flex-md-row gap-3">
-                            @if ($designCollagePreviewData->user_id === 1 && $designCollagePreviewData->user_type === 'admin')
+                            @php
+                                $previewUserId = data_get($designCollagePreviewData, 'user_id');
+                                $previewUserType = data_get($designCollagePreviewData, 'user_type');
+                                $previewUniqueId = data_get($designCollagePreviewData, 'unique_id');
+                                $previewArtGalleryId = data_get($designCollagePreviewData, 'artgallery_unique_id');
+                            @endphp
+                            @if ($previewUserId === 1 && $previewUserType === 'admin')
                                 <a href="javascript:;" class="btn btn-dark editGalleryCollage"
-                                    data-unique-id="{{ $designCollagePreviewData['unique_id'] }}">
+                                    data-unique-id="{{ $previewUniqueId }}">
                                     <i class="fa-solid fa-arrow-left"></i> Edit the collage
                                 </a>
                                 <button class="btn btn-success add-to-cart"
-                                    data-id="{{ $designCollagePreviewData['unique_id'] ?? '' }}" data-name="artgallery"
+                                    data-id="{{ $previewUniqueId ?? '' }}" data-name="artgallery"
                                     data-price="0">
                                     <i class="fa-regular fa-circle-check"></i>Checkout
                                 </button>
                             @else
-                                <a href="{{ route('front.design-collage', ['unique_id' => $designCollagePreviewData['unique_id'] ?? '']) }}"
+                                <a href="{{ route('front.design-collage', ['unique_id' => $previewUniqueId ?? '']) }}"
                                     class="btn btn-dark">
                                     <i class="fa-solid fa-arrow-left"></i> Go Back
                                 </a>
                                 <button class="btn btn-success add-to-cart"
-                                    data-id="{{ $designCollagePreviewData['unique_id'] ?? '' }}"
-                                    data-name="{{ $designCollagePreviewData->artgallery_unique_id !== null ? 'artgallery' : 'collage' }}"
+                                    data-id="{{ $previewUniqueId ?? '' }}"
+                                    data-name="{{ $previewArtGalleryId !== null ? 'artgallery' : 'collage' }}"
                                     data-price="0">
                                     <i class="fa-regular fa-circle-check"></i>Checkout
                                 </button>

@@ -32,6 +32,7 @@ class PrintFileService
     private const FRAME_PRINT_THICKNESS_MM = 10.0;
     private const FRAME_VISIBLE_THICKNESS_MM = 8.0;
     private const FRAME_INNER_CORNER_RADIUS_MM = 2.0;
+    private const FRAME_IMAGE_OVERSCAN_MM = 0.4;
     
     // Calculated pixel values
     private float $pxPerMm;
@@ -44,6 +45,7 @@ class PrintFileService
     private int $printCornerRadiusPx;
     private int $framePrintThicknessPx;
     private int $frameInnerCornerRadiusPx;
+    private int $frameImageOverscanPx;
     
     public function __construct()
     {
@@ -58,6 +60,7 @@ class PrintFileService
         $this->printCornerRadiusPx = $this->mmToPx(self::PRINT_CORNER_RADIUS_MM);
         $this->framePrintThicknessPx = $this->mmToPx(self::FRAME_PRINT_THICKNESS_MM);
         $this->frameInnerCornerRadiusPx = $this->mmToPx(self::FRAME_INNER_CORNER_RADIUS_MM);
+        $this->frameImageOverscanPx = max(1, $this->mmToPx(self::FRAME_IMAGE_OVERSCAN_MM));
         
         Log::info("PrintFileService initialized", [
             'clearTile' => "{$this->clearTileWPx}x{$this->clearTileHPx}px",
@@ -125,7 +128,7 @@ class PrintFileService
             // Following constants.json RENDER_ORDER: frame, text, filter, image
             
             // Step 1: Render Image (base layer)
-            $this->renderImage($blockCanvas, $imagePath, $blockPrintW, $blockPrintH, $zoom, $rotate);
+            $this->renderImage($blockCanvas, $imagePath, $blockPrintW, $blockPrintH, $zoom, $rotate, $frameConfig);
             
             // Step 2: Apply Filter (on top of image)
             if (!empty($filter)) {
@@ -134,7 +137,7 @@ class PrintFileService
             
             // Step 3: Render Text (on top of filter)
             if (!empty($textOverlays)) {
-                $this->renderText($blockCanvas, $textOverlays, $blockClearW, $blockClearH);
+                $this->renderText($blockCanvas, $textOverlays, $blockClearW, $blockClearH, $frameConfig);
             }
             
             // Step 4: Render Frame (top layer)
@@ -207,11 +210,187 @@ class PrintFileService
             return [false, []];
         }
     }
+
+    /**
+     * Generate preview-ready tiles (clear area, transparent background)
+     * This reuses the print rendering logic but crops to the clear area and rescales
+     *
+     * @param array $blockConfig
+     * @param float $targetTileWidthPx Desired tile width in the preview (defaults to 91px, editor size)
+     * @return array{tiles: array<int, array{row:int,col:int,image:resource}>, tile_width:int, tile_height:int, preview_scale:float}
+     */
+    public function generatePreviewTiles(array $blockConfig, float $targetTileWidthPx = 91.0): array
+    {
+        try {
+            Log::info("generatePreviewTiles started", [
+                'image' => $blockConfig['image_path'] ?? 'N/A',
+                'span' => ($blockConfig['cols'] ?? 1) . 'x' . ($blockConfig['rows'] ?? 1),
+            ]);
+
+            if (empty($blockConfig['image_path']) || !File::exists(storage_path('app/public/' . $blockConfig['image_path']))) {
+                Log::error("Preview image file not found", ['path' => $blockConfig['image_path'] ?? 'N/A']);
+                return [
+                    'tiles' => [],
+                    'tile_width' => 0,
+                    'tile_height' => 0,
+                    'preview_scale' => 1.0,
+                ];
+            }
+
+            $imagePath = $blockConfig['image_path'];
+            $rows = $blockConfig['rows'] ?? 1;
+            $cols = $blockConfig['cols'] ?? 1;
+            $zoom = $blockConfig['zoom'] ?? '0';
+            $rotate = $blockConfig['rotate'] ?? '1';
+            $frameConfig = $blockConfig['frame'] ?? ['exists' => false];
+            $filter = $blockConfig['filter'] ?? null;
+            $textOverlays = $blockConfig['text_overlays'] ?? [];
+            $startRow = $blockConfig['start_row'] ?? 0;
+            $startCol = $blockConfig['start_col'] ?? 0;
+            $editorBlockW = $blockConfig['editor_block_width_px'] ?? ($cols * $this->clearTileWPx);
+            $editorBlockH = $blockConfig['editor_block_height_px'] ?? ($rows * $this->clearTileHPx);
+
+            // Calculate block dimensions (with bleed)
+            $blockClearW = $cols * $this->clearTileWPx;
+            $blockClearH = $rows * $this->clearTileHPx;
+            $blockPrintW = $blockClearW + (2 * $this->bleedPx);
+            $blockPrintH = $blockClearH + (2 * $this->bleedPx);
+
+            // Create transparent block canvas
+            $blockCanvas = imagecreatetruecolor($blockPrintW, $blockPrintH);
+            imagealphablending($blockCanvas, false);
+            imagesavealpha($blockCanvas, true);
+            $transparent = imagecolorallocatealpha($blockCanvas, 0, 0, 0, 127);
+            imagefilledrectangle($blockCanvas, 0, 0, $blockPrintW, $blockPrintH, $transparent);
+
+            // Render image (same logic as print)
+            $this->renderImage($blockCanvas, $imagePath, $blockPrintW, $blockPrintH, $zoom, $rotate, $frameConfig, true);
+
+            // Apply filter (if any)
+            if (!empty($filter)) {
+                $this->applyFilter($blockCanvas, $filter);
+            }
+
+            // (Text overlays are rendered later for preview, skip here)
+
+            // Render frame if needed
+            $frameCanvas = null;
+            if ($frameConfig['exists'] ?? false) {
+                $frameCanvas = $this->renderFrame($blockPrintW, $blockPrintH, $frameConfig);
+            }
+
+            // Determine preview scaling
+            $previewTileWidth = max(1, intval(round($targetTileWidthPx)));
+            $previewScale = $previewTileWidth / $this->clearTileWPx;
+            $previewTileHeight = max(1, intval(round($this->clearTileHPx * $previewScale)));
+            $previewCornerRadius = max(1, intval(round($this->clearCornerRadiusPx * $previewScale)));
+
+            $tiles = [];
+
+            for ($row = 0; $row < $rows; $row++) {
+                for ($col = 0; $col < $cols; $col++) {
+                    $cropX = $this->bleedPx + ($col * $this->clearTileWPx);
+                    $cropY = $this->bleedPx + ($row * $this->clearTileHPx);
+
+                    $tileCanvas = imagecreatetruecolor($this->clearTileWPx, $this->clearTileHPx);
+                    imagealphablending($tileCanvas, false);
+                    imagesavealpha($tileCanvas, true);
+                    imagefilledrectangle($tileCanvas, 0, 0, $this->clearTileWPx, $this->clearTileHPx, $transparent);
+
+                    imagecopy(
+                        $tileCanvas,
+                        $blockCanvas,
+                        0,
+                        0,
+                        $cropX,
+                        $cropY,
+                        $this->clearTileWPx,
+                        $this->clearTileHPx
+                    );
+
+                    if ($frameCanvas !== null) {
+                        $frameSection = imagecreatetruecolor($this->clearTileWPx, $this->clearTileHPx);
+                        imagealphablending($frameSection, false);
+                        imagesavealpha($frameSection, true);
+                        imagefilledrectangle($frameSection, 0, 0, $this->clearTileWPx, $this->clearTileHPx, $transparent);
+
+                        imagecopy(
+                            $frameSection,
+                            $frameCanvas,
+                            0,
+                            0,
+                            $cropX,
+                            $cropY,
+                            $this->clearTileWPx,
+                            $this->clearTileHPx
+                        );
+
+                        imagealphablending($tileCanvas, true);
+                        imagecopy($tileCanvas, $frameSection, 0, 0, 0, 0, $this->clearTileWPx, $this->clearTileHPx);
+                        imagealphablending($tileCanvas, false);
+                        imagedestroy($frameSection);
+                    }
+
+                    $previewTile = imagecreatetruecolor($previewTileWidth, $previewTileHeight);
+                    imagealphablending($previewTile, false);
+                    imagesavealpha($previewTile, true);
+                    imagefilledrectangle($previewTile, 0, 0, $previewTileWidth, $previewTileHeight, $transparent);
+
+                    imagecopyresampled(
+                        $previewTile,
+                        $tileCanvas,
+                        0,
+                        0,
+                        0,
+                        0,
+                        $previewTileWidth,
+                        $previewTileHeight,
+                        $this->clearTileWPx,
+                        $this->clearTileHPx
+                    );
+
+                    $this->applyRoundedCorners($previewTile, $previewCornerRadius);
+
+                    $tiles[] = [
+                        'row' => $startRow + $row,
+                        'col' => $startCol + $col,
+                        'image' => $previewTile,
+                    ];
+
+                    imagedestroy($tileCanvas);
+                }
+            }
+
+            imagedestroy($blockCanvas);
+            if ($frameCanvas !== null) {
+                imagedestroy($frameCanvas);
+            }
+
+            return [
+                'tiles' => $tiles,
+                'tile_width' => $previewTileWidth,
+                'tile_height' => $previewTileHeight,
+                'preview_scale' => $previewScale,
+            ];
+        } catch (\Exception $e) {
+            Log::error("generatePreviewTiles error", [
+                'message' => $e->getMessage(),
+                'line' => $e->getLine(),
+            ]);
+
+            return [
+                'tiles' => [],
+                'tile_width' => 0,
+                'tile_height' => 0,
+                'preview_scale' => 1.0,
+            ];
+        }
+    }
     
     /**
      * Render image onto block canvas with proper scaling and transformations
      */
-    private function renderImage($canvas, string $imagePath, int $blockW, int $blockH, string $zoom, string $rotate): void
+    private function renderImage($canvas, string $imagePath, int $blockW, int $blockH, string $zoom, string $rotate, array $frameConfig = [], bool $visibleAreaOnly = false): void
     {
         $fullPath = storage_path('app/public/' . $imagePath);
         $sourceImage = imagecreatefromstring(file_get_contents($fullPath));
@@ -224,10 +403,28 @@ class PrintFileService
         $srcW = imagesx($sourceImage);
         $srcH = imagesy($sourceImage);
         
-        // Parse zoom (format: "zoomX|zoomY" or "0")
-        $zoomParts = explode('|', $zoom);
-        $zoomX = floatval($zoomParts[0] ?? 0);
-        $zoomY = floatval($zoomParts[1] ?? $zoomX);
+        // Parse zoom (format: "current|min" or single value)
+        $zoomParts = explode('|', (string) $zoom);
+        $currentZoom = null;
+        $minZoom = null;
+
+        if (isset($zoomParts[0]) && is_numeric($zoomParts[0])) {
+            $currentZoom = max((float) $zoomParts[0], 0.0);
+        }
+        if (isset($zoomParts[1]) && is_numeric($zoomParts[1])) {
+            $minZoom = max((float) $zoomParts[1], 0.0);
+        }
+
+        if ($minZoom !== null && $minZoom > 0.0) {
+            if ($currentZoom === null || $currentZoom <= 0.0) {
+                $currentZoom = $minZoom;
+            }
+            $zoomScaleX = max($currentZoom / $minZoom, 0.01);
+            $zoomScaleY = $zoomScaleX;
+        } else {
+            $zoomScaleX = 1.0;
+            $zoomScaleY = 1.0;
+        }
         
         // Parse rotation (1=0°, 2=90°, 3=180°, 4=270°)
         $rotationDegrees = 0;
@@ -246,40 +443,65 @@ class PrintFileService
             $srcH = imagesy($sourceImage);
         }
         
-        // Scale to cover block (with bleed) - "cover" fit
-        $blockAspect = $blockW / $blockH;
+        // For preview tiles we want the photo to occupy the full clear area,
+        // and let the frame overlay sit on top. Therefore do NOT inset by the
+        // frame thickness when $visibleAreaOnly is true.
+        $frameInset = ($frameConfig['exists'] ?? false) ? $this->framePrintThicknessPx : 0;
+        if ($visibleAreaOnly) {
+            $frameInset = 0;
+        }
+        $visibleInset = $visibleAreaOnly ? $this->bleedPx : 0;
+        $overscan = 0;
+        $targetX = $frameInset + $visibleInset;
+        $targetY = $frameInset + $visibleInset;
+        $targetW = max(1, $blockW - ($frameInset * 2) - ($visibleInset * 2));
+        $targetH = max(1, $blockH - ($frameInset * 2) - ($visibleInset * 2));
+        
+        if ($frameInset > 0 && !$visibleAreaOnly) {
+            $overscan = min($this->frameImageOverscanPx, $frameInset);
+            $targetX = max(0, $targetX - $overscan);
+            $targetY = max(0, $targetY - $overscan);
+            $targetW = min($blockW - $targetX, $targetW + ($overscan * 2));
+            $targetH = min($blockH - $targetY, $targetH + ($overscan * 2));
+        }
+        
+        // Scale to cover target area - "cover" fit
+        $blockAspect = $targetW / $targetH;
         $srcAspect = $srcW / $srcH;
         
         if ($srcAspect > $blockAspect) {
             // Image is wider - fit height
-            $scaledH = $blockH;
-            $scaledW = intval($blockH * $srcAspect);
+            $scaledH = $targetH;
+            $scaledW = intval($targetH * $srcAspect);
         } else {
             // Image is taller - fit width
-            $scaledW = $blockW;
-            $scaledH = intval($blockW / $srcAspect);
+            $scaledW = $targetW;
+            $scaledH = intval($targetW / $srcAspect);
         }
         
-        // Apply zoom if present
-        if ($zoomX > 0 || $zoomY > 0) {
-            $scaledW = intval($scaledW * (1 + $zoomX));
-            $scaledH = intval($scaledH * (1 + $zoomY));
-        }
+        // Apply zoom scale (default 1.0)
+        $scaledW = max(1, (int) round($scaledW * $zoomScaleX));
+        $scaledH = max(1, (int) round($scaledH * $zoomScaleY));
         
-        // Center the image (pan would be applied here if available in data)
-        $dstX = intval(($blockW - $scaledW) / 2);
-        $dstY = intval(($blockH - $scaledH) / 2);
+        // Align to top-left by default (editor uses object-position: top left)
+        $dstX = $targetX;
+        $dstY = $targetY;
         
         // Enable alpha blending for proper image rendering
         imagealphablending($canvas, true);
         
         // Draw image
         imagecopyresampled(
-            $canvas, $sourceImage,
-            $dstX, $dstY,
-            0, 0,
-            $scaledW, $scaledH,
-            $srcW, $srcH
+            $canvas,
+            $sourceImage,
+            $dstX,
+            $dstY,
+            0,
+            0,
+            $scaledW,
+            $scaledH,
+            $srcW,
+            $srcH
         );
         
         // Restore alpha blending state
@@ -291,6 +513,9 @@ class PrintFileService
             'src' => "{$srcW}x{$srcH}px",
             'scaled' => "{$scaledW}x{$scaledH}px",
             'position' => "{$dstX},{$dstY}",
+            'target_area' => "{$targetW}x{$targetH}px",
+            'frame_inset' => $frameInset,
+            'frame_overscan' => $overscan
         ]);
     }
     
@@ -372,118 +597,144 @@ class PrintFileService
     /**
      * Render text overlays on block canvas
      */
-    private function renderText($canvas, array $textOverlays, int $blockClearW, int $blockClearH): void
+    private function renderText($canvas, array $textOverlays, int $blockClearW, int $blockClearH, array $frameConfig): void
     {
+        if (empty($textOverlays)) {
+            return;
+        }
+        
+        // Editor tile dimensions taken from front-end tool.js actual tile sizes
+        $editorTileWidth = 91.0;
+        $editorTileHeight = 80.0;
+        
+        $blockCols = max(1, (int) round($blockClearW / $this->clearTileWPx));
+        $blockRows = max(1, (int) round($blockClearH / $this->clearTileHPx));
+        
+        $editorBlockW = $blockCols * $editorTileWidth;
+        $editorBlockH = $blockRows * $editorTileHeight;
+        
+        $scaleFactorX = $editorBlockW > 0 ? $blockClearW / $editorBlockW : 1.0;
+        $scaleFactorY = $editorBlockH > 0 ? $blockClearH / $editorBlockH : 1.0;
+        $avgScale = ($scaleFactorX + $scaleFactorY) / 2.0;
+        
+        $frameOffset = (!empty($frameConfig['exists'])) ? $this->framePrintThicknessPx : 0;
+        
+        Log::info("Text rendering scale factors", [
+            'block_cols' => $blockCols,
+            'block_rows' => $blockRows,
+            'editor_block_px' => "{$editorBlockW}x{$editorBlockH}",
+            'print_block_px' => "{$blockClearW}x{$blockClearH}",
+            'scale_x' => round($scaleFactorX, 4),
+            'scale_y' => round($scaleFactorY, 4),
+            'frame_offset_px' => $frameOffset
+        ]);
+        
         foreach ($textOverlays as $idx => $textOverlay) {
             $text = $textOverlay['text'] ?? '';
-            if (empty($text)) continue;
+            if ($text === '') {
+                continue;
+            }
             
-            $x = intval($textOverlay['x'] ?? 0) + $this->bleedPx;
-            $y = intval($textOverlay['y'] ?? 0) + $this->bleedPx;
-            $fontSize = intval($textOverlay['font_size'] ?? 40);
+            $editorX = floatval($textOverlay['x'] ?? 0);
+            $editorY = floatval($textOverlay['y'] ?? 0);
+            $editorFontSize = floatval($textOverlay['font_size'] ?? 16);
             $color = $textOverlay['color'] ?? '#000000';
             $fontFamily = $textOverlay['font_family'] ?? 'Arial';
             $rotation = floatval($textOverlay['rotation'] ?? 0);
+            $translateX = $textOverlay['translate_x'] ?? '-50%';
+            $translateY = $textOverlay['translate_y'] ?? '-50%';
             
-            Log::info("Rendering text overlay", [
-                'index' => $idx,
-                'text' => substr($text, 0, 20) . (strlen($text) > 20 ? '...' : ''),
-                'position' => "{$x},{$y} (with bleed: +{$this->bleedPx}px)",
-                'font_size' => $fontSize,
-                'color' => $color,
-                'rotation' => "{$rotation}°",
-                'font_family' => $fontFamily
-            ]);
+            // Scale CSS font-size (editor px) into print pixels, then convert to GD size.
+            // imagettftext() takes a size in points (1/72 in). To get consistent physical size:
+            //   size_pt = print_pixels * (72 / DPI)
+            $printFontSizePx = max(1.0, $editorFontSize * $avgScale);
+            $gdFontSize = $printFontSizePx * (72.0 / self::DPI);
+            $cssRotationDegrees = $rotation;
+            $gdRotationDegrees = 0 - $cssRotationDegrees;
+            $centerX = (int) round($editorX * $scaleFactorX) + $this->bleedPx;
+            $centerY = (int) round($editorY * $scaleFactorY) + $this->bleedPx;
             
-            // Convert hex color to RGB
+            $fontPath = $this->getFontPath($fontFamily);
+            if (!$fontPath || !file_exists($fontPath)) {
+                Log::error("Font not found for text overlay", [
+                    'font_family' => $fontFamily,
+                    'resolved_path' => $fontPath,
+                    'text_sample' => substr($text, 0, 20)
+                ]);
+                continue;
+            }
+            
+            // Measure text extent at print scale for translate adjustments
+            $bbox = imagettfbbox($gdFontSize, 0, $fontPath, $text);
+            $textWidthPx = abs($bbox[4] - $bbox[0]);
+            $textHeightPx = abs($bbox[5] - $bbox[1]);
+            
+            $translateXPx = $this->convertCssTranslateToPixels($translateX, $textWidthPx, $printFontSizePx);
+            $translateYPx = $this->convertCssTranslateToPixels($translateY, $textHeightPx, $printFontSizePx);
+            
+            $centerX += (int) round($translateXPx);
+            $centerY += (int) round($translateYPx);
+            
             $rgb = $this->hexToRgb($color);
             $textColor = imagecolorallocate($canvas, $rgb[0], $rgb[1], $rgb[2]);
             
-            // Get font path
-            $fontPath = $this->getFontPath($fontFamily);
+            Log::info("Rendering text overlay", [
+                'index' => $idx,
+                'text' => substr($text, 0, 30),
+                'editor_pos' => "{$editorX},{$editorY}",
+                'print_center' => "{$centerX},{$centerY}",
+                'translate' => "{$translateX},{$translateY}",
+                'font_px' => round($printFontSizePx, 2),
+                'font_pt' => round($gdFontSize, 2),
+                'rotation_css' => $cssRotationDegrees,
+                'rotation_gd' => $gdRotationDegrees,
+                'font' => basename($fontPath)
+            ]);
             
-            if ($fontPath && file_exists($fontPath)) {
-                if ($rotation != 0) {
-                    // Render rotated text
-                    $this->renderRotatedText($canvas, $text, $fontPath, $fontSize, $textColor, $x, $y, $rotation);
-                    Log::info("Text rendered with rotation", [
-                        'text' => substr($text, 0, 20), 
-                        'rotation' => "{$rotation}°",
-                        'font' => $fontPath
-                    ]);
-                } else {
-                    imagettftext($canvas, $fontSize, 0, $x, $y, $textColor, $fontPath, $text);
-                    Log::info("Text rendered (no rotation)", [
-                        'text' => substr($text, 0, 20),
-                        'font' => basename($fontPath)
-                    ]);
-                }
-            } else {
-                // CRITICAL ERROR: No TTF font available at all
-                // Draw a visible error message
-                $errorText = "FONT ERROR: " . $text;
-                imagestring($canvas, 5, $x, $y, $errorText, $textColor);
-                
-                // Also draw a red rectangle to make it obvious there's a problem
-                $red = imagecolorallocate($canvas, 255, 0, 0);
-                imagerectangle($canvas, $x - 5, $y - 5, $x + (strlen($errorText) * 8), $y + 15, $red);
-                
-                Log::error("CRITICAL: No TTF font found, using GD built-in (will be invisible)", [
-                    'text' => substr($text, 0, 20),
-                    'requested_font' => $fontFamily,
-                    'searched_path' => $fontPath ?? 'N/A',
-                    'message' => 'Check that C:/Windows/Fonts/ contains arial.ttf'
-                ]);
-            }
+            $bboxRotated = imagettfbbox($gdFontSize, $gdRotationDegrees, $fontPath, $text);
+            $minX = min($bboxRotated[0], $bboxRotated[2], $bboxRotated[4], $bboxRotated[6]);
+            $maxX = max($bboxRotated[0], $bboxRotated[2], $bboxRotated[4], $bboxRotated[6]);
+            $minY = min($bboxRotated[1], $bboxRotated[3], $bboxRotated[5], $bboxRotated[7]);
+            $maxY = max($bboxRotated[1], $bboxRotated[3], $bboxRotated[5], $bboxRotated[7]);
+            $bboxCenterX = ($minX + $maxX) / 2;
+            $bboxCenterY = ($minY + $maxY) / 2;
+            
+            $baselineX = $centerX - $bboxCenterX;
+            $baselineY = $centerY - $bboxCenterY;
+            
+            imagettftext($canvas, $gdFontSize, $gdRotationDegrees, (int) round($baselineX), (int) round($baselineY), $textColor, $fontPath, $text);
         }
         
         Log::info("Text rendering completed", ['total_overlays' => count($textOverlays)]);
     }
     
-    /**
-     * Render rotated text using a temporary canvas
-     */
-    private function renderRotatedText($canvas, string $text, string $fontPath, int $fontSize, int $textColor, int $x, int $y, float $rotation): void
+    private function convertCssTranslateToPixels($value, float $referenceSize, int $fallbackSize): float
     {
-        // Get text bounding box to determine size
-        $bbox = imagettfbbox($fontSize, 0, $fontPath, $text);
-        $textWidth = $bbox[4] - $bbox[0];
-        $textHeight = $bbox[1] - $bbox[5];
+        if ($value === null || $value === '' || $value === '0' || $value === 0) {
+            return 0.0;
+        }
         
-        // Add padding for rotation
-        $padding = max($textWidth, $textHeight) * 0.5;
-        $tempWidth = intval($textWidth + $padding * 2);
-        $tempHeight = intval($textHeight + $padding * 2);
+        if (is_numeric($value)) {
+            return floatval($value);
+        }
         
-        // Create temporary canvas for text
-        $tempCanvas = imagecreatetruecolor($tempWidth, $tempHeight);
-        imagealphablending($tempCanvas, false);
-        imagesavealpha($tempCanvas, true);
-        $transparent = imagecolorallocatealpha($tempCanvas, 0, 0, 0, 127);
-        imagefilledrectangle($tempCanvas, 0, 0, $tempWidth, $tempHeight, $transparent);
+        $value = trim((string) $value, " \"'");
         
-        // Draw text on temporary canvas
-        imagealphablending($tempCanvas, true);
-        imagettftext($tempCanvas, $fontSize, 0, intval($padding), intval($textHeight + $padding), $textColor, $fontPath, $text);
-        imagealphablending($tempCanvas, false);
+        if ($value === '') {
+            return 0.0;
+        }
         
-        // Rotate the temporary canvas
-        $rotatedCanvas = imagerotate($tempCanvas, -$rotation, $transparent);
+        if (str_ends_with($value, '%')) {
+            $percent = floatval(rtrim($value, '%'));
+            $reference = $referenceSize > 0 ? $referenceSize : $fallbackSize;
+            return ($percent / 100.0) * $reference;
+        }
         
-        // Calculate position to center the rotated text
-        $rotatedWidth = imagesx($rotatedCanvas);
-        $rotatedHeight = imagesy($rotatedCanvas);
-        $centerX = $x - intval($rotatedWidth / 2);
-        $centerY = $y - intval($rotatedHeight / 2);
+        if (str_ends_with($value, 'px')) {
+            return floatval(rtrim($value, 'px'));
+        }
         
-        // Copy rotated text to main canvas
-        imagealphablending($canvas, true);
-        imagecopy($canvas, $rotatedCanvas, $centerX, $centerY, 0, 0, $rotatedWidth, $rotatedHeight);
-        imagealphablending($canvas, false);
-        
-        // Cleanup
-        imagedestroy($tempCanvas);
-        imagedestroy($rotatedCanvas);
+        return 0.0;
     }
     
     /**
@@ -500,37 +751,20 @@ class PrintFileService
         imagesavealpha($frameCanvas, true);
         $transparent = imagecolorallocatealpha($frameCanvas, 0, 0, 0, 127);
         imagefilledrectangle($frameCanvas, 0, 0, $blockW, $blockH, $transparent);
-        
+
         // Draw full-bleed rounded rect with R10
         $frameColorAllocated = imagecolorallocate($frameCanvas, $frameColor[0], $frameColor[1], $frameColor[2]);
         $this->drawFilledRoundedRect($frameCanvas, 0, 0, $blockW, $blockH, $this->printCornerRadiusPx, $frameColorAllocated);
         
-        // Punch inner hole inset by 8mm (frame thickness) with R2 inner radius
+        // Punch inner hole inset by frame thickness with R2 inner radius
         $innerX = $this->framePrintThicknessPx;
         $innerY = $this->framePrintThicknessPx;
         $innerW = $blockW - (2 * $this->framePrintThicknessPx);
         $innerH = $blockH - (2 * $this->framePrintThicknessPx);
-        
-        // Create inner mask
-        $innerMask = imagecreatetruecolor($blockW, $blockH);
-        imagealphablending($innerMask, false);
-        imagesavealpha($innerMask, true);
-        imagefilledrectangle($innerMask, 0, 0, $blockW, $blockH, $transparent);
-        
-        $maskOpaque = imagecolorallocate($innerMask, 255, 255, 255);
-        $this->drawFilledRoundedRect($innerMask, $innerX, $innerY, $innerW, $innerH, $this->frameInnerCornerRadiusPx, $maskOpaque);
-        
-        // Punch the hole
-        for ($x = 0; $x < $blockW; $x++) {
-            for ($y = 0; $y < $blockH; $y++) {
-                $maskColor = imagecolorat($innerMask, $x, $y);
-                if (($maskColor & 0xFF) === 255) {
-                    imagesetpixel($frameCanvas, $x, $y, $transparent);
-                }
-            }
+        if ($innerW > 0 && $innerH > 0) {
+            $innerTransparent = imagecolorallocatealpha($frameCanvas, 0, 0, 0, 127);
+            $this->drawFilledRoundedRect($frameCanvas, $innerX, $innerY, $innerW, $innerH, $this->frameInnerCornerRadiusPx, $innerTransparent);
         }
-        
-        imagedestroy($innerMask);
         
         Log::info("Frame rendered", [
             'size' => "{$blockW}x{$blockH}px",

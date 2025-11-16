@@ -224,15 +224,23 @@
     });
 
     /* Video Popup */
-    $(".youtube-link").grtyoutube({
-        autoPlay:true,
-        theme: "dark"
-    });
+    if ($.fn && typeof $.fn.grtyoutube === 'function') {
+        $(".youtube-link").grtyoutube({
+            autoPlay:true,
+            theme: "dark"
+        });
+    } else {
+        console.warn('grtyoutube plugin missing – skipping video popup binding');
+    }
 
     /* Counter */
-    $('.count-num').rCounter({
-        duration: 100
-      });
+    if ($.fn && typeof $.fn.rCounter === 'function') {
+        $('.count-num').rCounter({
+            duration: 100
+        });
+    } else {
+        console.warn('rCounter plugin missing – skipping counter initialisation');
+    }
 
     
 })(window.jQuery);   

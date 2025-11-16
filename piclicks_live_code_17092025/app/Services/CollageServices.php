@@ -1124,6 +1124,11 @@ class CollageServices
             ]);
         }
     }
+
+    public function generatePrintFilesForCollageAsync($unique_id, $masterdata)
+    {
+        return $this->generatePrintFilesForCollage($unique_id, $masterdata);
+    }
     
     /**
      * Get text overlays that appear on a specific tile
@@ -1145,20 +1150,16 @@ class CollageServices
         $gridColumns = intval($masterdata->grid_columns ?? 5);
         $gridRows = intval($masterdata->grid_rows ?? 5);
         
-        // Editor tile dimensions (approximate - these are CSS pixels in the editor)
-        // The editor uses a fixed canvas size, typically around 600-800px wide
-        // We'll estimate based on typical editor dimensions
-        $editorCanvasWidth = 750; // Typical editor canvas width
-        $editorCanvasHeight = 750; // Typical editor canvas height
-        
-        $editorTileWidth = $editorCanvasWidth / $gridColumns;
-        $editorTileHeight = $editorCanvasHeight / $gridRows;
+        // Editor tile metrics sourced from tool.js constants
+        $editorTileWidth = 91.0;
+        $editorTileHeight = 80.0;
+        $editorTileMargin = 2.0;
         
         // Calculate this tile's bounding box in global editor coordinates
-        $tileLeft = $tileStartCol * $editorTileWidth;
-        $tileTop = $tileStartRow * $editorTileHeight;
-        $tileRight = $tileLeft + ($tileCols * $editorTileWidth);
-        $tileBottom = $tileTop + ($tileRows * $editorTileHeight);
+        $tileLeft = $tileStartCol * ($editorTileWidth + $editorTileMargin);
+        $tileTop = $tileStartRow * ($editorTileHeight + $editorTileMargin);
+        $tileRight = $tileLeft + ($tileCols * $editorTileWidth) + (max($tileCols - 1, 0) * $editorTileMargin);
+        $tileBottom = $tileTop + ($tileRows * $editorTileHeight) + (max($tileRows - 1, 0) * $editorTileMargin);
         
         Log::info("Tile bounding box in editor coordinates", [
             'tile_position' => "col:{$tileStartCol}, row:{$tileStartRow}",
@@ -1169,37 +1170,54 @@ class CollageServices
         $tileTextOverlays = [];
         
         foreach ($globalTextOverlays as $textOverlay) {
-            $textX = intval($textOverlay['x'] ?? 0);
-            $textY = intval($textOverlay['y'] ?? 0);
-            $fontSize = intval($textOverlay['font_size'] ?? 40);
+            $textX = floatval($textOverlay['x'] ?? 0);
+            $textY = floatval($textOverlay['y'] ?? 0);
+            $fontSize = floatval($textOverlay['font_size'] ?? 40);
             $text = $textOverlay['text'] ?? '';
+            $translateX = $textOverlay['translate_x'] ?? '-50%';
+            $translateY = $textOverlay['translate_y'] ?? '-50%';
             
-            // Estimate text bounding box (rough approximation)
-            // Font size in editor is roughly equal to height in pixels
-            // Width is approximately textLength * fontSize * 0.6 (average character width ratio)
-            $textWidth = strlen($text) * ($fontSize / 2.5) * 0.6; // Divide by 2.5 because font_size is already scaled
-            $textHeight = $fontSize / 2.5;
+            if ($text === '') {
+                continue;
+            }
             
-            $textRight = $textX + $textWidth;
-            $textBottom = $textY + $textHeight;
+            // Estimate text bounding box in editor space
+            $textWidth = strlen($text) * $fontSize * 0.6;
+            $textHeight = $fontSize;
+            
+            $translateXPx = $this->convertTranslateToPixels($translateX, $textWidth, $fontSize);
+            $translateYPx = $this->convertTranslateToPixels($translateY, $textHeight, $fontSize);
+            
+            // Account for translate() shifting the element before deriving the center point
+            $centerX = $textX + $translateXPx + ($textWidth / 2);
+            $centerY = $textY + $translateYPx + ($textHeight / 2);
+            $topLeftX = $centerX - ($textWidth / 2);
+            $topLeftY = $centerY - ($textHeight / 2);
+            
+            $textRight = $topLeftX + $textWidth;
+            $textBottom = $topLeftY + $textHeight;
             
             // Check if text bounding box intersects with tile bounding box
             $intersects = !(
                 $textRight < $tileLeft ||    // Text is completely to the left
-                $textX > $tileRight ||        // Text is completely to the right
+                $topLeftX > $tileRight ||        // Text is completely to the right
                 $textBottom < $tileTop ||     // Text is completely above
-                $textY > $tileBottom          // Text is completely below
+                $topLeftY > $tileBottom          // Text is completely below
             );
             
             if ($intersects) {
                 // Adjust text position to be relative to this tile (not global)
                 $adjustedTextOverlay = $textOverlay;
-                $adjustedTextOverlay['x'] = $textX - $tileLeft;
-                $adjustedTextOverlay['y'] = $textY - $tileTop;
+                $adjustedTextOverlay['x'] = $centerX - $tileLeft;
+                $adjustedTextOverlay['y'] = $centerY - $tileTop;
+                // We've already accounted for translate in the center position
+                $adjustedTextOverlay['translate_x'] = 0;
+                $adjustedTextOverlay['translate_y'] = 0;
                 
                 Log::info("Text overlay included on this tile", [
                     'text' => substr($text, 0, 20),
-                    'global_pos' => "x:{$textX}, y:{$textY}",
+                    'global_pos' => "x:{$centerX}, y:{$centerY}",
+                    'translate_px' => "x:{$translateXPx}, y:{$translateYPx}",
                     'tile_relative_pos' => "x:{$adjustedTextOverlay['x']}, y:{$adjustedTextOverlay['y']}",
                     'tile' => "col:{$tileStartCol}, row:{$tileStartRow}"
                 ]);
@@ -1208,7 +1226,7 @@ class CollageServices
             } else {
                 Log::info("Text overlay excluded from this tile (no intersection)", [
                     'text' => substr($text, 0, 20),
-                    'text_bounds' => "x:{$textX}-{$textRight}, y:{$textY}-{$textBottom}",
+                    'text_bounds' => "x:{$topLeftX}-{$textRight}, y:{$topLeftY}-{$textBottom}",
                     'tile_bounds' => "x:{$tileLeft}-{$tileRight}, y:{$tileTop}-{$tileBottom}",
                     'tile' => "col:{$tileStartCol}, row:{$tileStartRow}"
                 ]);
@@ -1252,6 +1270,8 @@ class CollageServices
                 'color' => $fontProperties['color'] ?? '#000000',
                 'font_family' => $fontProperties['font_family'] ?? 'Arial',
                 'rotation' => $fontProperties['rotation'] ?? 0,
+                'translate_x' => $fontProperties['translate_x'] ?? '-50%',
+                'translate_y' => $fontProperties['translate_y'] ?? '-50%',
             ];
         }
         
@@ -1363,23 +1383,28 @@ class CollageServices
             'font_size' => 16,
             'color' => '#000000',
             'font_family' => 'Arial',
-            'rotation' => 0
+            'rotation' => 0,
+            'translate_x' => '-50%',
+            'translate_y' => '-50%',
         ];
 
-        // Extract font size and scale for print (editor uses smaller sizes for web display)
-        if (preg_match('/font-size:\s*(\d+)px/', $styles, $matches)) {
-            $editorFontSize = intval($matches[1]);
-            // Scale up font size for print (editor shows smaller text for web)
-            $fontProperties['font_size'] = intval($editorFontSize * 2.5); // Scale factor for print
+        if (preg_match('/font-size:\s*(\d+(?:\.\d+)?)px/', $styles, $matches)) {
+            $fontProperties['font_size'] = floatval($matches[1]);
         }
 
-        // Extract rotation angle
-        if (preg_match('/transform:\s*rotate\(([^)]+)\)/', $styles, $matches)) {
+        if (preg_match('/transform:[^;]*rotate\(([^)]+)\)/', $styles, $matches)) {
             $rotation = floatval(trim($matches[1], 'deg'));
             $fontProperties['rotation'] = $rotation;
         }
 
-        // Extract color
+        if (preg_match('/transform:[^;]*translate\(([^)]+)\)/', $styles, $matches)) {
+            $parts = array_map('trim', explode(',', $matches[1]));
+            if (count($parts) >= 2) {
+                $fontProperties['translate_x'] = $parts[0];
+                $fontProperties['translate_y'] = $parts[1];
+            }
+        }
+
         if (preg_match('/color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)/', $styles, $matches)) {
             $r = intval($matches[1]);
             $g = intval($matches[2]);
@@ -1389,11 +1414,8 @@ class CollageServices
             $fontProperties['color'] = $matches[1];
         }
 
-        // Extract font family
         if (preg_match('/font-family:\s*([^;]+)/', $styles, $matches)) {
-            $fontFamily = trim($matches[1]);
-            // Take the first font family (before the first comma)
-            $fontFamily = explode(',', $fontFamily)[0];
+            $fontFamily = trim(explode(',', $matches[1])[0]);
             $fontFamily = trim($fontFamily, " '\"");
             $fontProperties['font_family'] = $fontFamily;
         }
@@ -1436,6 +1458,31 @@ class CollageServices
             default:
                 return 1;
         }
+    }
+
+    private function convertTranslateToPixels($value, float $referenceSize, float $fontSize): float
+    {
+        if ($value === null || $value === '' || $value === '0' || $value === 0) {
+            return 0.0;
+        }
+
+        if (is_numeric($value)) {
+            return floatval($value);
+        }
+
+        $value = trim((string) $value, " \"'");
+
+        if (str_ends_with($value, '%')) {
+            $percent = floatval(rtrim($value, '%'));
+            $reference = $referenceSize > 0 ? $referenceSize : $fontSize;
+            return ($percent / 100.0) * $reference;
+        }
+
+        if (str_ends_with($value, 'px')) {
+            return floatval(rtrim($value, 'px'));
+        }
+
+        return 0.0;
     }
 }
 
