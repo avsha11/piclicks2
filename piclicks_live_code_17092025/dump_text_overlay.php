@@ -23,3 +23,4 @@ if (!$master) {
 
 echo $master->text_editor ?? '';
 
+

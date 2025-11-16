@@ -254,3 +254,4 @@ Memory ≈ (font_size)² × text_length × 4 bytes
 
 
 
+
