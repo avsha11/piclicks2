@@ -1,0 +1,11 @@
+You are a PHP/Laravel expert. We have a bug:
+[Describe the bug, observed behavior, expected behavior, reproduction steps.]
+
+Follow `.cursor/rules/*.mdc`. Limit changes to the smallest necessary scope.
+After the fix, write a regression test to prevent reappearance.
+
+Provide:
+- Root cause analysis.
+- Minimal code change (files/lines).
+- Regression test.
+- Short explanation of why this fix is correct.

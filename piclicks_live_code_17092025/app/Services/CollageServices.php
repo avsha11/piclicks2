@@ -1181,14 +1181,41 @@ class CollageServices
                 continue;
             }
             
-            // Estimate text bounding box in editor space
-            $textWidth = strlen($text) * $fontSize * 0.6;
-            $textHeight = $fontSize;
+            // Measure actual text bounding box using the font file (same as PrintFileService)
+            // This ensures the center calculation matches what PrintFileService will render
+            $fontPath = $this->getFontPathForMeasurement($fontFamily);
+            if ($fontPath && function_exists('imagettfbbox')) {
+                // Measure at editor font size (no rotation for bounding box calculation)
+                $bbox = imagettfbbox($fontSize, 0, $fontPath, $text);
+                if ($bbox !== false) {
+                    $textWidth = abs($bbox[4] - $bbox[0]);
+                    $textHeight = abs($bbox[5] - $bbox[1]);
+                } else {
+                    // Fallback to estimate if measurement fails
+                    $textWidth = strlen($text) * $fontSize * 0.6;
+                    $textHeight = $fontSize;
+                    Log::warning("Failed to measure text bounding box, using estimate", [
+                        'text' => substr($text, 0, 20),
+                        'font' => $fontFamily
+                    ]);
+                }
+            } else {
+                // Fallback to estimate if font not found or GD not available
+                $textWidth = strlen($text) * $fontSize * 0.6;
+                $textHeight = $fontSize;
+                Log::warning("Using estimated text bounding box", [
+                    'text' => substr($text, 0, 20),
+                    'font' => $fontFamily,
+                    'reason' => $fontPath ? 'GD function not available' : 'Font not found'
+                ]);
+            }
             
             $translateXPx = $this->convertTranslateToPixels($translateX, $textWidth, $fontSize);
             $translateYPx = $this->convertTranslateToPixels($translateY, $textHeight, $fontSize);
             
             // Account for translate() shifting the element before deriving the center point
+            // The CSS (x, y) is the left/top position, and translate(-50%, -50%) shifts it
+            // So the center is: position + translate + half of bounding box
             $centerX = $textX + $translateXPx + ($textWidth / 2);
             $centerY = $textY + $translateYPx + ($textHeight / 2);
             $topLeftX = $centerX - ($textWidth / 2);
@@ -1483,6 +1510,74 @@ class CollageServices
         }
 
         return 0.0;
+    }
+    
+    /**
+     * Get font file path for text measurement (same logic as PrintFileService)
+     * This ensures we use the same font file for bounding box calculation
+     */
+    private function getFontPathForMeasurement(string $fontFamily): ?string
+    {
+        // Extract font family name (remove fallbacks like "Georgia, serif")
+        $fontFamily = trim(explode(',', $fontFamily)[0]);
+        $fontFamily = trim($fontFamily, " '\"");
+        
+        $fontDirectories = [
+            'C:/Windows/Fonts/',
+            '/usr/share/fonts/',
+            '/usr/local/share/fonts/',
+            '/System/Library/Fonts/',
+            storage_path('fonts/'),
+        ];
+        
+        $fontMappings = [
+            'Arial' => ['arial.ttf', 'Arial.ttf', 'ARIAL.TTF', 'arial.ttc'],
+            'Helvetica' => ['Helvetica.ttf', 'helvetica.ttf'],
+            'Times New Roman' => ['times.ttf', 'Times.ttf', 'times.ttc', 'TIMES.TTF'],
+            'Georgia' => ['Georgia.ttf', 'georgia.ttf', 'GEORGIA.TTF'],
+            'Verdana' => ['verdana.ttf', 'Verdana.ttf', 'VERDANA.TTF'],
+            'Courier New' => ['cour.ttf', 'Courier.ttf', 'COUR.TTF'],
+            'Brush Script MT' => ['BRUSHSCI.TTF', 'brushsci.ttf', 'BrushScriptMT.ttf'],
+            'Comic Sans MS' => ['comic.ttf', 'Comic.ttf', 'COMIC.TTF'],
+            'Impact' => ['impact.ttf', 'Impact.ttf', 'IMPACT.TTF'],
+            'Tahoma' => ['tahoma.ttf', 'Tahoma.ttf', 'TAHOMA.TTF'],
+        ];
+        
+        $fontFiles = $fontMappings[$fontFamily] ?? [
+            str_replace(' ', '', strtolower($fontFamily)) . '.ttf',
+            str_replace(' ', '', $fontFamily) . '.ttf',
+            strtolower($fontFamily) . '.ttf',
+            $fontFamily . '.ttf',
+            strtoupper(str_replace(' ', '', $fontFamily)) . '.TTF',
+            str_replace(' ', '', strtolower($fontFamily)) . '.otf',
+            $fontFamily . '.otf',
+        ];
+        
+        foreach ($fontDirectories as $directory) {
+            if (is_dir($directory)) {
+                foreach ($fontFiles as $fontFile) {
+                    $fontPath = $directory . $fontFile;
+                    if (file_exists($fontPath)) {
+                        return $fontPath;
+                    }
+                }
+            }
+        }
+        
+        // Fallback to Arial
+        $arialFiles = ['arial.ttf', 'Arial.ttf', 'ARIAL.TTF', 'arial.ttc'];
+        foreach ($fontDirectories as $directory) {
+            if (is_dir($directory)) {
+                foreach ($arialFiles as $fontFile) {
+                    $fontPath = $directory . $fontFile;
+                    if (file_exists($fontPath)) {
+                        return $fontPath;
+                    }
+                }
+            }
+        }
+        
+        return null;
     }
 }
 

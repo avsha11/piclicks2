@@ -1,0 +1,23 @@
+You are a senior Laravel + Blade + jQuery + Livewire engineer working in a traditional multi-page app.
+Follow the rules in `.cursor/rules/*.mdc`. Do not change core stack or add dependencies without asking first.
+Touch only the minimal files needed.
+
+Goal: Implement the following feature:
+[Describe the feature in 2–5 bullet points, include routes, pages, and any data changes.]
+
+Requirements:
+- Use thin controllers; delegate logic to services/use-cases.
+- Use Eloquent/Query Builder (no raw concatenated SQL).
+- Update/create Blade views; keep them small and componentized.
+- Use jQuery/Livewire appropriately (no brittle selectors; prefer data-* hooks).
+- Use Axios for HTTP with proper error handling.
+- Add/modify tests (unit/feature/Livewire) for the new logic.
+- Keep individual files under ~300 lines; refactor if needed.
+- After implementation, self-review and propose refactors.
+
+Step 1: Propose a detailed plan (files to create/modify, data model, routes).
+Step 2: Implement code per plan.
+Step 3: Add/update tests; run and verify.
+Step 4: Provide a concise changelog and follow-up refactor suggestions.
+
+@codebase

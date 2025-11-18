@@ -1,0 +1,17 @@
+description: Rules for Blade templates and server-rendered pages.
+globs: ["resources/views/**/*.blade.php"]
+alwaysApply: true
+
+# Blade Structure
+- Keep views focused and small; extract partials/components for repeated UI.
+- Use @include / @component / @extends consistently; avoid huge monolithic templates.
+- No heavy business logic in Blade; only simple presentation logic.
+- Escape output by default; only use `{!! !!}` when content is known-safe.
+
+# Assets & Vite
+- Reference assets through Vite helpers (@vite) where applicable.
+- Keep inline <script> and <style> minimal; prefer external JS/CSS via Vite.
+
+# Accessibility & SEO
+- Use semantic HTML (landmarks, headings, labels).
+- Provide alt text for images; proper form labels and aria attributes.

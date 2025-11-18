@@ -31,3 +31,4 @@ C:\xampp\php\php.exe artisan queue:work --tries=3 --timeout=600 --verbose
 
 
 
+

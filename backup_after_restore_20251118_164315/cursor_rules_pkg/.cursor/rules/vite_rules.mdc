@@ -1,0 +1,7 @@
+description: Vite build & asset handling rules.
+alwaysApply: true
+
+- Keep entry points minimal; split by page/feature where helpful.
+- Prefer ES modules; avoid global pollution.
+- Only include libraries actually used (tree-shake when possible).
+- Configure cache busting via Vite; avoid manual querystring hacks.

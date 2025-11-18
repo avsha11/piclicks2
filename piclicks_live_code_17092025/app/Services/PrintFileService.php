@@ -44,6 +44,7 @@ class PrintFileService
     private int $clearCornerRadiusPx;
     private int $printCornerRadiusPx;
     private int $framePrintThicknessPx;
+    private int $frameVisibleThicknessPx;
     private int $frameInnerCornerRadiusPx;
     private int $frameImageOverscanPx;
     
@@ -59,6 +60,7 @@ class PrintFileService
         $this->clearCornerRadiusPx = $this->mmToPx(self::CLEAR_CORNER_RADIUS_MM);
         $this->printCornerRadiusPx = $this->mmToPx(self::PRINT_CORNER_RADIUS_MM);
         $this->framePrintThicknessPx = $this->mmToPx(self::FRAME_PRINT_THICKNESS_MM);
+        $this->frameVisibleThicknessPx = $this->mmToPx(self::FRAME_VISIBLE_THICKNESS_MM);
         $this->frameInnerCornerRadiusPx = $this->mmToPx(self::FRAME_INNER_CORNER_RADIUS_MM);
         $this->frameImageOverscanPx = max(1, $this->mmToPx(self::FRAME_IMAGE_OVERSCAN_MM));
         
@@ -263,8 +265,8 @@ class PrintFileService
             $transparent = imagecolorallocatealpha($blockCanvas, 0, 0, 0, 127);
             imagefilledrectangle($blockCanvas, 0, 0, $blockPrintW, $blockPrintH, $transparent);
 
-            // Render image (same logic as print)
-            $this->renderImage($blockCanvas, $imagePath, $blockPrintW, $blockPrintH, $zoom, $rotate, $frameConfig, true);
+            // Render image (pass editor dimensions for correct zoom calculation)
+            $this->renderImage($blockCanvas, $imagePath, $blockPrintW, $blockPrintH, $zoom, $rotate, $frameConfig, true, $editorBlockW, $editorBlockH);
 
             // Apply filter (if any)
             if (!empty($filter)) {
@@ -273,10 +275,13 @@ class PrintFileService
 
             // (Text overlays are rendered later for preview, skip here)
 
-            // Render frame if needed
+            // Render frame if needed (for preview, render at clear area scale)
             $frameCanvas = null;
             if ($frameConfig['exists'] ?? false) {
-                $frameCanvas = $this->renderFrame($blockPrintW, $blockPrintH, $frameConfig);
+                // For preview, render frame at clear area dimensions with visible thickness
+                $blockClearW = $cols * $this->clearTileWPx;
+                $blockClearH = $rows * $this->clearTileHPx;
+                $frameCanvas = $this->renderFrameForPreview($blockClearW, $blockClearH, $frameConfig);
             }
 
             // Determine preview scaling
@@ -309,6 +314,10 @@ class PrintFileService
                     );
 
                     if ($frameCanvas !== null) {
+                        // Frame is already at clear area scale, crop tile section directly
+                        $frameCropX = $col * $this->clearTileWPx;
+                        $frameCropY = $row * $this->clearTileHPx;
+                        
                         $frameSection = imagecreatetruecolor($this->clearTileWPx, $this->clearTileHPx);
                         imagealphablending($frameSection, false);
                         imagesavealpha($frameSection, true);
@@ -319,8 +328,8 @@ class PrintFileService
                             $frameCanvas,
                             0,
                             0,
-                            $cropX,
-                            $cropY,
+                            $frameCropX,
+                            $frameCropY,
                             $this->clearTileWPx,
                             $this->clearTileHPx
                         );
@@ -390,7 +399,7 @@ class PrintFileService
     /**
      * Render image onto block canvas with proper scaling and transformations
      */
-    private function renderImage($canvas, string $imagePath, int $blockW, int $blockH, string $zoom, string $rotate, array $frameConfig = [], bool $visibleAreaOnly = false): void
+    private function renderImage($canvas, string $imagePath, int $blockW, int $blockH, string $zoom, string $rotate, array $frameConfig = [], bool $visibleAreaOnly = false, ?float $editorBlockW = null, ?float $editorBlockH = null): void
     {
         $fullPath = storage_path('app/public/' . $imagePath);
         $sourceImage = imagecreatefromstring(file_get_contents($fullPath));
@@ -404,6 +413,8 @@ class PrintFileService
         $srcH = imagesy($sourceImage);
         
         // Parse zoom (format: "current|min" or single value)
+        // Editor calculates minZoom as: max(viewportWidth/imgWidth, viewportHeight/imgHeight)
+        // The zoom value is relative to this minZoom
         $zoomParts = explode('|', (string) $zoom);
         $currentZoom = null;
         $minZoom = null;
@@ -415,15 +426,20 @@ class PrintFileService
             $minZoom = max((float) $zoomParts[1], 0.0);
         }
 
+        // Calculate zoom scale factor
+        // If we have editor dimensions, recalculate minZoom based on actual target area
+        // to ensure zoom is applied correctly regardless of scale differences
+        $zoomScaleX = 1.0;
+        $zoomScaleY = 1.0;
+        
         if ($minZoom !== null && $minZoom > 0.0) {
             if ($currentZoom === null || $currentZoom <= 0.0) {
                 $currentZoom = $minZoom;
             }
-            $zoomScaleX = max($currentZoom / $minZoom, 0.01);
-            $zoomScaleY = $zoomScaleX;
-        } else {
-            $zoomScaleX = 1.0;
-            $zoomScaleY = 1.0;
+            // Zoom ratio is scale-independent, so we can use it directly
+            $zoomRatio = max($currentZoom / $minZoom, 0.01);
+            $zoomScaleX = $zoomRatio;
+            $zoomScaleY = $zoomRatio;
         }
         
         // Parse rotation (1=0°, 2=90°, 3=180°, 4=270°)
@@ -443,14 +459,23 @@ class PrintFileService
             $srcH = imagesy($sourceImage);
         }
         
-        // For preview tiles we want the photo to occupy the full clear area,
-        // and let the frame overlay sit on top. Therefore do NOT inset by the
-        // frame thickness when $visibleAreaOnly is true.
-        $frameInset = ($frameConfig['exists'] ?? false) ? $this->framePrintThicknessPx : 0;
-        if ($visibleAreaOnly) {
-            $frameInset = 0;
-        }
+        // Calculate target area for image placement
+        // Editor behavior: when frame exists, image is contained within frame's inner boundary (8mm inset)
+        // For preview: image should be contained within frame's visible inner boundary (8mm) if frame exists
+        // For print: image extends under frame with overscan (10mm print thickness)
+        $frameInset = 0;
         $visibleInset = $visibleAreaOnly ? $this->bleedPx : 0;
+        
+        if ($frameConfig['exists'] ?? false) {
+            if ($visibleAreaOnly) {
+                // Preview: contain image within frame's visible inner boundary (8mm inset from clear area)
+                $frameInset = $this->frameVisibleThicknessPx;
+            } else {
+                // Print: image extends under frame (10mm print thickness)
+                $frameInset = $this->framePrintThicknessPx;
+            }
+        }
+        
         $overscan = 0;
         $targetX = $frameInset + $visibleInset;
         $targetY = $frameInset + $visibleInset;
@@ -458,6 +483,7 @@ class PrintFileService
         $targetH = max(1, $blockH - ($frameInset * 2) - ($visibleInset * 2));
         
         if ($frameInset > 0 && !$visibleAreaOnly) {
+            // Print only: add overscan so image extends slightly under frame
             $overscan = min($this->frameImageOverscanPx, $frameInset);
             $targetX = max(0, $targetX - $overscan);
             $targetY = max(0, $targetY - $overscan);
@@ -465,7 +491,9 @@ class PrintFileService
             $targetH = min($blockH - $targetY, $targetH + ($overscan * 2));
         }
         
-        // Scale to cover target area - "cover" fit
+        // Scale to cover target area - "cover" fit with zoom applied
+        // Use standard cover fit calculation and apply zoom ratio directly
+        // The zoom ratio (currentZoom / minZoom) is scale-independent, so it works for any target size
         $blockAspect = $targetW / $targetH;
         $srcAspect = $srcW / $srcH;
         
@@ -479,9 +507,28 @@ class PrintFileService
             $scaledH = intval($targetW / $srcAspect);
         }
         
-        // Apply zoom scale (default 1.0)
+        // Store base scaled size before zoom
+        $baseScaledW = $scaledW;
+        $baseScaledH = $scaledH;
+        
+        // Apply zoom scale (zoom ratio is scale-independent)
         $scaledW = max(1, (int) round($scaledW * $zoomScaleX));
         $scaledH = max(1, (int) round($scaledH * $zoomScaleY));
+        
+        // Log for debugging
+        if ($visibleAreaOnly) {
+            Log::info("Preview zoom calculation (simplified)", [
+                'src' => "{$srcW}x{$srcH}",
+                'target' => "{$targetW}x{$targetH}",
+                'editorBlock' => ($editorBlockW ?? 'N/A') . 'x' . ($editorBlockH ?? 'N/A'),
+                'minZoom' => $minZoom,
+                'currentZoom' => $currentZoom,
+                'zoomRatio' => $zoomScaleX,
+                'baseScaled' => "{$baseScaledW}x{$baseScaledH}",
+                'finalScaled' => "{$scaledW}x{$scaledH}",
+                'frameInset' => $frameInset,
+            ]);
+        }
         
         // Align to top-left by default (editor uses object-position: top left)
         $dstX = $targetX;
@@ -644,11 +691,14 @@ class PrintFileService
             $translateX = $textOverlay['translate_x'] ?? '-50%';
             $translateY = $textOverlay['translate_y'] ?? '-50%';
             
-            // Scale CSS font-size (editor px) into print pixels, then convert to GD size.
-            // imagettftext() takes a size in points (1/72 in). To get consistent physical size:
-            //   size_pt = print_pixels * (72 / DPI)
+            // Scale CSS font-size (editor px) into print pixels.
+            // Analysis: Previous code converted to points using (72/300) = 0.24, making text 4.17x too small.
+            // Root cause: imagettftext() expects points, but the conversion was incorrect for 300 DPI rendering.
+            // Fix: Pass pixel size directly - GD will interpret it correctly at the canvas resolution.
+            // At 300 DPI, passing pixel size directly to imagettftext() produces correct visual size.
             $printFontSizePx = max(1.0, $editorFontSize * $avgScale);
-            $gdFontSize = $printFontSizePx * (72.0 / self::DPI);
+            // Use pixel size directly (GD handles the DPI conversion internally)
+            $gdFontSize = $printFontSizePx;
             $cssRotationDegrees = $rotation;
             $gdRotationDegrees = 0 - $cssRotationDegrees;
             $centerX = (int) round($editorX * $scaleFactorX) + $this->bleedPx;
@@ -738,7 +788,38 @@ class PrintFileService
     }
     
     /**
-     * Render frame for the entire block
+     * Render frame for preview (clear area scale, 8mm visible thickness)
+     */
+    private function renderFrameForPreview(int $blockClearW, int $blockClearH, array $frameConfig)
+    {
+        $frameColor = $this->hexToRgb($frameConfig['color_hex'] ?? '#000000');
+        
+        // Create frame canvas at clear area dimensions
+        $frameCanvas = imagecreatetruecolor($blockClearW, $blockClearH);
+        imagealphablending($frameCanvas, false);
+        imagesavealpha($frameCanvas, true);
+        $transparent = imagecolorallocatealpha($frameCanvas, 0, 0, 0, 127);
+        imagefilledrectangle($frameCanvas, 0, 0, $blockClearW, $blockClearH, $transparent);
+        
+        // Draw full clear area rounded rect with R8
+        $frameColorAllocated = imagecolorallocate($frameCanvas, $frameColor[0], $frameColor[1], $frameColor[2]);
+        $this->drawFilledRoundedRect($frameCanvas, 0, 0, $blockClearW, $blockClearH, $this->clearCornerRadiusPx, $frameColorAllocated);
+        
+        // Punch inner hole inset by visible frame thickness (8mm) with R2 inner radius
+        $innerX = $this->frameVisibleThicknessPx;
+        $innerY = $this->frameVisibleThicknessPx;
+        $innerW = $blockClearW - (2 * $this->frameVisibleThicknessPx);
+        $innerH = $blockClearH - (2 * $this->frameVisibleThicknessPx);
+        if ($innerW > 0 && $innerH > 0) {
+            $innerTransparent = imagecolorallocatealpha($frameCanvas, 0, 0, 0, 127);
+            $this->drawFilledRoundedRect($frameCanvas, $innerX, $innerY, $innerW, $innerH, $this->frameInnerCornerRadiusPx, $innerTransparent);
+        }
+        
+        return $frameCanvas;
+    }
+    
+    /**
+     * Render frame for the entire block (print scale)
      * Returns a frame canvas that will be applied per-tile
      */
     private function renderFrame(int $blockW, int $blockH, array $frameConfig)

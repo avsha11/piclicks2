@@ -14,9 +14,9 @@ class PreviewRenderer
     private const FRAME_THICKNESS = 7; // editor frame border width in px
     private const CONTAINER_PADDING = 10; // .tool-inner padding in px
     private const SCALE = 2;         // upscale factor for better quality
-    private const TEXT_SIZE_ADJUST = 0.74; // fine-tuned GD vs CSS size
-    private const TEXT_ADJUST_DX = -6;     // small empirical offset in editor px (left)
-    private const TEXT_ADJUST_DY = -6;     // nudge up a bit to match editor
+    private const TEXT_SIZE_ADJUST = 0.70; // fine-tuned GD vs CSS size (reduced for better match)
+    private const TEXT_ADJUST_DX = -4;     // small empirical offset in editor px (left)
+    private const TEXT_ADJUST_DY = -4;     // nudge up a bit to match editor
 
     private const FRAME_CLASSES = [
         'success-black-outlined' => '#000000',
@@ -48,8 +48,15 @@ class PreviewRenderer
         $colsCount = ($maxCol - $minCol + 1);
         $rowsCount = ($maxRow - $minRow + 1);
 
+        // Calculate canvas size with small safety margin to account for rounding errors
+        // and ensure rounded corners/ellipses don't get clipped
         $canvasWidth = $colsCount * $tileWidthPx + ($colsCount - 1) * $gapPx;
         $canvasHeight = $rowsCount * $tileHeightPx + ($rowsCount - 1) * $gapPx;
+        
+        // Add small safety margin (2 pixels) to prevent clipping from rounding errors
+        // This ensures ellipses at rounded corners don't get cut off
+        $canvasWidth += 2;
+        $canvasHeight += 2;
 
         $canvas = imagecreatetruecolor($canvasWidth, $canvasHeight);
         imagealphablending($canvas, false);
@@ -59,6 +66,10 @@ class PreviewRenderer
         imagealphablending($canvas, true);
 
         $maskCanvas = imagecreatetruecolor($canvasWidth, $canvasHeight);
+        
+        // Store canvas dimensions for bounds checking
+        $canvasMaxX = $canvasWidth - 1;
+        $canvasMaxY = $canvasHeight - 1;
         imagealphablending($maskCanvas, false);
         imagesavealpha($maskCanvas, true);
         $maskTransparent = imagecolorallocatealpha($maskCanvas, 0, 0, 0, 127);
@@ -76,8 +87,16 @@ class PreviewRenderer
         // Draw text overlays on top
         $this->renderTextOverlays($canvas, $maskCanvas, $canvasWidth, $canvasHeight, $master, $minCol, $minRow, $tileWidthPx, $tileHeightPx, $gapPx);
 
-        $relativePath = 'temp/preview_' . ($master['unique_id'] ?? uniqid()) . '_' . time() . '.png';
+        // Use consistent filename (without timestamp) so we can reuse the same preview image
+        // This ensures admin/cart thumbnails use the exact same image as the Preview page
+        $uniqueId = $master['unique_id'] ?? uniqid();
+        $relativePath = 'temp/preview_' . $uniqueId . '.png';
         $fullPath = storage_path('app/public/' . $relativePath);
+        
+        // Delete old preview image if it exists (in case collage was updated)
+        if (file_exists($fullPath)) {
+            @unlink($fullPath);
+        }
 
         // Ensure directory exists
         $dir = dirname($fullPath);
@@ -203,22 +222,102 @@ class PreviewRenderer
         $contentWidth = $cols * $tileWidth;
         $contentHeight = $rows * $tileHeight;
 
-        // object-fit: cover scaling based on editor dimensions
-        $scaleFactorX = $contentWidth / ($editorWidth * self::SCALE);
-        $scaleFactorY = $contentHeight / ($editorHeight * self::SCALE);
-        // fallback to using content width/height if editor dims not reliable
-        $scaleFactor = max($contentWidth / $srcW, $contentHeight / $srcH);
-        $scaledW = intval($srcW * $scaleFactor);
-        $scaledH = intval($srcH * $scaleFactor);
-
-        // Apply zoom
+        // Parse zoom correctly: format is "currentZoom|minZoom"
+        // Editor calculates: scaleMin = max(viewportWidth/imgWidth, viewportHeight/imgHeight) = minZoom
+        // Editor applies: finalScale = scaleMin * (currentZoom / minZoom)
         $zoomStr = $blockInfo['settings']['zoom'] ?? '0';
         $zoomParts = explode('|', $zoomStr);
-        $zoomX = floatval($zoomParts[0] ?? 0);
-        $zoomY = floatval($zoomParts[1] ?? $zoomX);
-        if ($zoomX > 0 || $zoomY > 0) {
-            $scaledW = intval($scaledW * (1 + $zoomX));
-            $scaledH = intval($scaledH * (1 + $zoomY));
+        $currentZoom = null;
+        $minZoom = null;
+        
+        if (isset($zoomParts[0]) && is_numeric($zoomParts[0])) {
+            $currentZoom = max((float) $zoomParts[0], 0.0);
+        }
+        if (isset($zoomParts[1]) && is_numeric($zoomParts[1])) {
+            $minZoom = max((float) $zoomParts[1], 0.0);
+        }
+
+        // Calculate editor's viewport dimensions (matching editor logic)
+        // Editor uses different viewport logic for single tiles (91x80) vs stretched tiles
+        $viewportW = null;
+        $viewportH = null;
+        
+        // Check if this is a single-tile block (91x80 in editor pixels)
+        if (abs($editorWidth - self::TILE_WIDTH) < 1.0 && abs($editorHeight - self::TILE_HEIGHT) < 1.0) {
+            // Single tile - try fixed viewport sizes (editor uses 342x300, 456x400, or 570x500)
+            // Try to match stored minZoom to determine which viewport was used
+            $fixedViewports = [
+                [342.0, 300.0],
+                [456.0, 400.0],
+                [570.0, 500.0]
+            ];
+            
+            if ($minZoom !== null && $minZoom > 0.0) {
+                // Try each viewport and pick the one that matches minZoom best
+                $bestMatch = null;
+                $bestDiff = PHP_FLOAT_MAX;
+                
+                foreach ($fixedViewports as [$vw, $vh]) {
+                    $testMinZoom = max($vw / $srcW, $vh / $srcH);
+                    $diff = abs($testMinZoom - $minZoom);
+                    if ($diff < $bestDiff) {
+                        $bestDiff = $diff;
+                        $bestMatch = [$vw, $vh];
+                    }
+                }
+                
+                if ($bestMatch !== null) {
+                    $viewportW = $bestMatch[0];
+                    $viewportH = $bestMatch[1];
+                }
+            }
+            
+            // Fallback to middle viewport if no match found
+            if ($viewportW === null || $viewportH === null) {
+                $viewportW = 456.0;
+                $viewportH = 400.0;
+            }
+        } else {
+            // Stretched tiles: viewport = min(blockSize * 2, maxViewport) maintaining aspect ratio
+            $maxViewportW = 650.0;
+            $maxViewportH = 570.0;
+            $editorAspect = $editorWidth / $editorHeight;
+            
+            $viewportW = min($editorWidth * 2.0, $maxViewportW);
+            $viewportH = min($editorHeight * 2.0, $maxViewportH);
+            
+            // Maintain aspect ratio
+            if ($viewportW / $viewportH > $editorAspect) {
+                $viewportW = $viewportH * $editorAspect;
+            } else {
+                $viewportH = $viewportW / $editorAspect;
+            }
+        }
+
+        // Calculate scale using editor's method
+        if ($minZoom !== null && $minZoom > 0.0 && $currentZoom !== null && $currentZoom > 0.0) {
+            // We have stored zoom values - use editor's exact calculation
+            // Calculate what the image size would be in the editor's viewport
+            $editorFinalScale = $minZoom * ($currentZoom / $minZoom); // This equals currentZoom
+            $editorScaledW = $srcW * $editorFinalScale;
+            $editorScaledH = $srcH * $editorFinalScale;
+            
+            // Now scale from editor's viewport to preview's target area
+            // This maintains the same relative crop/position
+            $scaleToTargetX = $contentWidth / $viewportW;
+            $scaleToTargetY = $contentHeight / $viewportH;
+            
+            // Use uniform scaling to maintain aspect ratio and relative crop
+            $scaleToTarget = min($scaleToTargetX, $scaleToTargetY);
+            
+            // Apply scaling to get final dimensions
+            $scaledW = max(1, (int) round($editorScaledW * $scaleToTarget));
+            $scaledH = max(1, (int) round($editorScaledH * $scaleToTarget));
+        } else {
+            // Fallback: standard cover fit calculation
+            $scaleFactor = max($contentWidth / $srcW, $contentHeight / $srcH);
+            $scaledW = intval($srcW * $scaleFactor);
+            $scaledH = intval($srcH * $scaleFactor);
         }
 
         $scaledImage = imagecreatetruecolor($scaledW, $scaledH);
@@ -258,8 +357,10 @@ class PreviewRenderer
                 imagefill($tileCanvas, 0, 0, $tileTrans);
                 imagealphablending($tileCanvas, true);
 
-                $srcX = intval(($tileWidth * $c) + ($scaledW - $contentWidth) / 2);
-                $srcY = intval(($tileHeight * $r) + ($scaledH - $contentHeight) / 2);
+                // Position at top-left (matching editor's object-position: top left)
+                // The scaled image is larger than content area, so we start from (0, 0) and crop
+                $srcX = intval($tileWidth * $c);
+                $srcY = intval($tileHeight * $r);
 
                 imagecopy($tileCanvas, $scaledImage, 0, 0, $srcX, $srcY, $tileWidth, $tileHeight);
 
@@ -267,7 +368,17 @@ class PreviewRenderer
                 $this->applyRoundedCorners($tileCanvas, intval(self::CORNER_RADIUS * self::SCALE));
                 $this->drawRoundedRectangle($maskCanvas, $destX, $destY, $tileWidth, $tileHeight, intval(self::CORNER_RADIUS * self::SCALE), $maskOpaqueColor, true);
 
-                imagecopy($canvas, $tileCanvas, $destX, $destY, 0, 0, $tileWidth, $tileHeight);
+                // Clamp destination coordinates to prevent clipping
+                $canvasWidth = imagesx($canvas);
+                $canvasHeight = imagesy($canvas);
+                $destX = max(0, min($destX, $canvasWidth - 1));
+                $destY = max(0, min($destY, $canvasHeight - 1));
+                $copyWidth = min($tileWidth, $canvasWidth - $destX);
+                $copyHeight = min($tileHeight, $canvasHeight - $destY);
+                
+                if ($copyWidth > 0 && $copyHeight > 0) {
+                    imagecopy($canvas, $tileCanvas, $destX, $destY, 0, 0, $copyWidth, $copyHeight);
+                }
                 imagedestroy($tileCanvas);
             }
         }
@@ -307,20 +418,66 @@ class PreviewRenderer
             $this->drawRoundedRectangle($frameImg, $innerX, $innerY, $innerW, $innerH, max(0, $radius - $thickness), $transparent, true);
         }
 
-        imagecopy($canvas, $frameImg, $x, $y, 0, 0, $w, $h);
+        // Clamp frame coordinates to canvas bounds to prevent clipping
+        $canvasWidth = imagesx($canvas);
+        $canvasHeight = imagesy($canvas);
+        $x = max(0, min($x, $canvasWidth - 1));
+        $y = max(0, min($y, $canvasHeight - 1));
+        $copyWidth = min($w, $canvasWidth - $x);
+        $copyHeight = min($h, $canvasHeight - $y);
+        
+        if ($copyWidth > 0 && $copyHeight > 0) {
+            imagecopy($canvas, $frameImg, $x, $y, 0, 0, $copyWidth, $copyHeight);
+        }
         imagedestroy($frameImg);
     }
 
     private function drawRoundedRectangle($canvas, int $x, int $y, int $w, int $h, int $r, int $color, bool $fill = false): void
     {
+        $canvasWidth = imagesx($canvas);
+        $canvasHeight = imagesy($canvas);
+        
+        // Clamp coordinates to canvas bounds to prevent clipping
+        $x = max(0, min($x, $canvasWidth - 1));
+        $y = max(0, min($y, $canvasHeight - 1));
+        $w = min($w, $canvasWidth - $x);
+        $h = min($h, $canvasHeight - $y);
+        
+        if ($w <= 0 || $h <= 0) {
+            return; // Nothing to draw
+        }
+        
         $width = $fill ? $w : $w - 1;
         $height = $fill ? $h : $h - 1;
+        
+        // Ensure width and height don't exceed remaining canvas space
+        $width = min($width, $canvasWidth - $x);
+        $height = min($height, $canvasHeight - $y);
+        
+        // Clamp radius to fit within dimensions
+        $r = min($r, intval(min($width, $height) / 2));
+        
+        if ($r <= 0) {
+            // No rounded corners, just draw rectangle
+            imagefilledrectangle($canvas, $x, $y, $x + $width, $y + $height, $color);
+            return;
+        }
+        
         imagefilledrectangle($canvas, $x + $r, $y, $x + $width - $r, $y + $height, $color);
         imagefilledrectangle($canvas, $x, $y + $r, $x + $width, $y + $height - $r, $color);
-        imagefilledellipse($canvas, $x + $r, $y + $r, $r * 2, $r * 2, $color);
-        imagefilledellipse($canvas, $x + $width - $r, $y + $r, $r * 2, $r * 2, $color);
-        imagefilledellipse($canvas, $x + $r, $y + $height - $r, $r * 2, $r * 2, $color);
-        imagefilledellipse($canvas, $x + $width - $r, $y + $height - $r, $r * 2, $r * 2, $color);
+        
+        // Clamp ellipse centers to canvas bounds
+        $topLeftX = max($r, min($x + $r, $canvasWidth - $r));
+        $topLeftY = max($r, min($y + $r, $canvasHeight - $r));
+        $topRightX = max($r, min($x + $width - $r, $canvasWidth - $r));
+        $bottomLeftY = max($r, min($y + $height - $r, $canvasHeight - $r));
+        $bottomRightX = max($r, min($x + $width - $r, $canvasWidth - $r));
+        $bottomRightY = max($r, min($y + $height - $r, $canvasHeight - $r));
+        
+        imagefilledellipse($canvas, $topLeftX, $topLeftY, $r * 2, $r * 2, $color);
+        imagefilledellipse($canvas, $topRightX, $topLeftY, $r * 2, $r * 2, $color);
+        imagefilledellipse($canvas, $topLeftX, $bottomLeftY, $r * 2, $r * 2, $color);
+        imagefilledellipse($canvas, $bottomRightX, $bottomRightY, $r * 2, $r * 2, $color);
     }
 
     private function applyRoundedCorners($image, int $radius): void
@@ -429,7 +586,9 @@ class PreviewRenderer
 
             $color = $this->allocateHex($textCanvas, $overlay['color'] ?? '#000000');
 
-            // Adjust origin: subtract padding and occupied tile offset
+            // Adjust origin: text positions are relative to the grid (text layer aligns with grid)
+            // The text layer in the editor is positioned to align with the grid
+            // Need to account for container padding and occupied tile offset
             $relativeX = ($overlay['x'] ?? 0)
                 - self::CONTAINER_PADDING
                 - ($minCol * (self::TILE_WIDTH + self::TILE_GAP));
@@ -445,12 +604,27 @@ class PreviewRenderer
             $translateX = $this->parseTranslateValue($overlay['translate_x'] ?? 0, $scaleFactor, $textWidth);
             $translateY = $this->parseTranslateValue($overlay['translate_y'] ?? 0, $scaleFactor, $textHeight);
 
-            $centerX = $x + ($textWidth / 2) + $translateX + (self::TEXT_ADJUST_DX * $scaleFactor);
-            $centerY = $y + ($textHeight / 2) + $translateY + (self::TEXT_ADJUST_DY * $scaleFactor);
+            // The editor stores x, y as the center point of the text element
+            // CSS uses transform: translate(-50%, -50%) which centers based on the element's bounding box
+            // The browser's getBoundingClientRect() returns the actual rendered bounding box
+            // We need to match this by using imagettfbbox's bounding box center
+            
+            // Calculate the target center position (where the editor's pivot point is)
+            $centerX = $x + $translateX + (self::TEXT_ADJUST_DX * $scaleFactor);
+            $centerY = $y + $translateY + (self::TEXT_ADJUST_DY * $scaleFactor);
 
-            // Convert center to baseline point for imagettftext
-            $drawX = $centerX - ($textWidth / 2) - $minX;
-            $drawY = $centerY + ($textHeight / 2) - $maxY;
+            // imagettfbbox returns coordinates where baseline is at y=0
+            // minY is negative (above baseline), maxY is positive (below baseline)
+            // The bounding box center relative to baseline is:
+            $bboxCenterX = ($minX + $maxX) / 2;
+            $bboxCenterY = ($minY + $maxY) / 2;
+            
+            // To position the bounding box center at (centerX, centerY):
+            // The baseline position should be offset by the bbox center
+            // For X: baselineX = centerX - bboxCenterX
+            // For Y: baselineY = centerY - bboxCenterY (since baseline is at y=0 in bbox coords)
+            $drawX = $centerX - $bboxCenterX;
+            $drawY = $centerY - $bboxCenterY;
 
             imagettftext($textCanvas, $fontSize, -$rotation, intval($drawX), intval($drawY), $color, $fontPath, $text);
         }

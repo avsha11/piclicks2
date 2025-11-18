@@ -422,6 +422,9 @@ class CollageController extends Controller
 
             $baseScaleFactor = $this->determineBaseScale($previewResult['cols'] ?? 1, $previewResult['rows'] ?? 1);
 
+            // Livingroom: Apply additional 14% reduction (multiply by 0.8624 = 0.88 * 0.98)
+            // Then reduce by 10% of current size: 0.8624 * 0.90 = 0.7762
+            $livingroomScaleFactor = $baseScaleFactor * 0.8624 * 0.90;
             $mergedImage1 = $this->composePreviewScene(
                 $livingBackground,
                 $collageResource,
@@ -435,9 +438,10 @@ class CollageController extends Controller
                     'tile_height_px' => $previewResult['tile_height'] ?? 0,
                     'output_format' => 'png',
                 ],
-                $baseScaleFactor
+                $livingroomScaleFactor
             );
 
+            // Kitchen: Move collage 10% upward (10% of collage height)
             $mergedImage2 = $this->composePreviewScene(
                 $kitchenBackground,
                 $collageResource,
@@ -450,7 +454,8 @@ class CollageController extends Controller
                     'max_height_ratio' => 0.6,
                     'align_bottom' => true,
                     'tile_height_px' => $previewResult['tile_height'] ?? 0,
-                    'offset_down_tiles' => 0.5,
+                    'offset_down_tiles' => 0.5, // Keep original tile-based offset
+                    'offset_vertical_percent' => -10, // Move up by 10% of collage height
                     'output_format' => 'jpg',
                 ],
                 $baseScaleFactor
@@ -1015,7 +1020,8 @@ class CollageController extends Controller
             $base = 0.7;
         }
 
-        return max(0.1, $base * 0.75);
+        // Reduce size by 15% (multiply by 0.85)
+        return max(0.1, $base * 0.75 * 0.85);
     }
 
     private function composePreviewScene($background, $collage, string $uniqueId, string $suffix, array $options, float $baseScaleFactor): string
@@ -1036,7 +1042,8 @@ class CollageController extends Controller
         $maxWidth = intval($bgWidth * ($options['max_width_ratio'] ?? 1.0));
         $maxHeight = intval($bgHeight * ($options['max_height_ratio'] ?? 1.0));
 
-        $scale = $baseScaleFactor > 0 ? $baseScaleFactor : 1.0;
+        // Apply 15% reduction to base scale
+        $scale = $baseScaleFactor > 0 ? ($baseScaleFactor * 0.85) : 0.85;
 
         $finalW = intval($imgWidth * $scale);
         $finalH = intval($imgHeight * $scale);
@@ -1049,25 +1056,40 @@ class CollageController extends Controller
             1
         );
 
+        // Apply 15% reduction to scaleLimit as well to ensure consistent sizing
+        $scaleLimit = $scaleLimit * 0.85;
+
         if ($finalW > $availWidth || $finalH > $availHeight || $finalW > $maxWidth || $finalH > $maxHeight || $scaleLimit < $scale) {
-            $scale = $scaleLimit;
+            $scale = min($scaleLimit, $scale);
             $finalW = intval($imgWidth * $scale);
             $finalH = intval($imgHeight * $scale);
         }
 
-        $destX = $marginLeft + intval(($availWidth - $finalW) / 2);
+        // Calculate centered position first
+        $centeredX = $marginLeft + intval(($availWidth - $finalW) / 2);
+        $centeredY = $marginTop + intval(($availHeight - $finalH) / 2);
+
+        // Apply 15% left shift and 10% up shift from center (relative to collage size)
+        $shiftLeft = intval($finalW * 0.15);
+        $shiftUp = intval($finalH * 0.10);
+        
+        $destX = $centeredX - $shiftLeft;
         if (!empty($options['align_left'])) {
             $destX = $marginLeft;
         } elseif (!empty($options['align_right'])) {
             $destX = $bgWidth - $marginRight - $finalW;
         }
+        // Ensure collage doesn't go off the left edge
+        $destX = max(0, $destX);
 
-        $destY = $marginTop + intval(($availHeight - $finalH) / 2);
+        $destY = $centeredY - $shiftUp;
         if (!empty($options['align_bottom'])) {
             $destY = $bgHeight - $marginBottom - $finalH;
         } elseif (!empty($options['align_top'])) {
             $destY = $marginTop;
         }
+        // Ensure collage doesn't go off the top edge
+        $destY = max(0, $destY);
 
         if (!empty($options['offset_down_tiles']) && !empty($options['tile_height_px'])) {
             $tileHeightPx = floatval($options['tile_height_px']);
@@ -1077,6 +1099,14 @@ class CollageController extends Controller
                 $maxY = $bgHeight - $finalH;
                 $destY = min($maxY, $destY + $offsetPx);
             }
+        }
+
+        // Apply percentage-based vertical offset if specified (e.g., move up by 10% of collage height)
+        if (!empty($options['offset_vertical_percent'])) {
+            $offsetPercent = floatval($options['offset_vertical_percent']);
+            $offsetPx = intval($finalH * ($offsetPercent / 100));
+            $maxY = $bgHeight - $finalH;
+            $destY = max(0, min($maxY, $destY + $offsetPx));
         }
 
         $scaled = imagecreatetruecolor($finalW, $finalH);

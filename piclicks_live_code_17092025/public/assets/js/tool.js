@@ -1814,14 +1814,32 @@ document.addEventListener("DOMContentLoaded", () => {
     function addTextOverlay() {
         if (!textInput.value) return;
         if (selectedOverlay) return;
+        
+        // Get the currently selected font from the dropdown
+        let selectedFont = "Arial, sans-serif"; // Default
+        const activeFontItem = fontOptions.querySelector(".dropdown-item.active");
+        if (activeFontItem) {
+            selectedFont = activeFontItem.getAttribute("data-font") || selectedFont;
+        } else {
+            // If no active item, use the first option as default
+            const firstFontItem = fontOptions.querySelector(".dropdown-item");
+            if (firstFontItem) {
+                selectedFont = firstFontItem.getAttribute("data-font") || selectedFont;
+            }
+        }
+        
+        // Get the current font size from the input
+        const fontSizeInput = document.getElementById("font-size");
+        const fontSize = fontSizeInput ? (fontSizeInput.value + "px") : "20px";
+        
         const textOverlay = document.createElement("div");
         textOverlay.classList.add("text-overlay");
         textOverlay.style.position = "absolute";
         textOverlay.style.top = "50%";
         textOverlay.style.left = "50%";
         textOverlay.style.transform = "translate(-50%, -50%)";
-        textOverlay.style.fontFamily = "Arial, sans-serif";
-        textOverlay.style.fontSize = "20px";
+        textOverlay.style.fontFamily = selectedFont;
+        textOverlay.style.fontSize = fontSize;
         textOverlay.style.color = colorPicker.value || "#000000";
         textOverlay.style.backgroundColor = "transparent";
         textOverlay.style.whiteSpace = "pre-wrap"; // Ensure text respects line breaks and spaces

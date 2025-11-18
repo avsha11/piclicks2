@@ -550,11 +550,15 @@
                     type: "POST",
                     data: requestData,
                     success: function(response) {
-                        loadCartItems();
                         toastr.success(response.message);
-                        setTimeout(function() {
+                        // Load cart items and wait for completion before opening minicart
+                        loadCartItems().then(function() {
                             openOffcanvas("#add-to-cart");
-                        }, 1000);
+                        }).catch(function(error) {
+                            console.error("Error loading cart items:", error);
+                            // Still open the minicart even if there's an error
+                            openOffcanvas("#add-to-cart");
+                        });
                     },
                     error: function(xhr) {
                         alert("Error: " + xhr.responseJSON.message);
@@ -564,17 +568,15 @@
         }
 
         function loadCartItems() {
-            $.ajax({
+            return $.ajax({
                 url: "{{ route('front.cart.items') }}",
-                type: "GET",
-                success: function(response) {
-                    $(".address_payment").html(response.address_payment);
-                    $(".button_cart").html(response.button_cart);
-                },
-                error: function(xhr) {
-                    console.error("Error loading cart:", xhr.responseText);
-                    $("#cart-items").html("<p>Failed to load cart items.</p>");
-                }
+                type: "GET"
+            }).done(function(response) {
+                $(".address_payment").html(response.address_payment);
+                $(".button_cart").html(response.button_cart);
+            }).fail(function(xhr) {
+                console.error("Error loading cart:", xhr.responseText);
+                $("#cart-items").html("<p>Failed to load cart items.</p>");
             });
         }
         $(document).on("click", ".remove-from-cart", function() {

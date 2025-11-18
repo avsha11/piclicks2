@@ -1,0 +1,8 @@
+description: UI libraries: Toastr, SweetAlert2, Slick, Owl Carousel, imagesLoaded.
+alwaysApply: true
+
+- Toastr: centralize init (position, timeout). Use consistent success/error/info patterns.
+- SweetAlert2: wrap in helper to enforce consistent titles, text, confirm/cancel labels.
+- Slick/Owl: initialize in per-page scripts; avoid duplicate inits; destroy/re-init on Livewire updates as needed.
+- imagesLoaded: use to trigger layout/slider init after images are ready.
+- Do not load both Slick and Owl on the same element; pick one per use-case.

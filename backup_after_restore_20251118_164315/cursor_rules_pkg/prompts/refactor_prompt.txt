@@ -1,0 +1,12 @@
+You are acting as a code refactorer for a Laravel + Blade + jQuery + Livewire project.
+Goal: improve maintainability, reduce duplication, and align with `.cursor/rules/*.mdc` without changing behavior.
+
+Given code/module:
+[Paste file(s) or reference paths]
+
+Constraints:
+- Keep behavior identical; do not change public interfaces unless justified.
+- Keep files under ~300 lines; split into smaller units where helpful.
+- Strengthen typing/docblocks where useful.
+- Ensure tests still pass; add missing tests if they improve safety.
+- Provide a short summary of changes and rationale.
