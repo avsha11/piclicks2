@@ -374,7 +374,7 @@
                                     <img src="{{ asset('assets/images/layout-grid.png') }}">
                                     <div class="con_framebox">
                                         <h5>Normal Grid
-                                            <span class="d-none loader" style="left: 20%;top: 39%;">
+                                            <span class="d-none loader" style="left: 20%;top: 39%;"></span>
                                         </h5>
                                     </div>
                                 </label>
@@ -387,8 +387,9 @@
                                 <label class="add-active" for="dynamic-grid">
                                     <img src="{{ asset('assets/images/layout-play.png') }}">
                                     <div class="con_framebox">
-                                        <h5>Dynamic Grid</h5>
-                                        <span class="d-none loader" style="left: 69%;top: 38%;">
+                                        <h5>Dynamic Grid
+                                            <span class="d-none loader" style="left: 69%;top: 38%;"></span>
+                                        </h5>
                                     </div>
                                 </label>
                             </div>
@@ -702,7 +703,8 @@
     <script src="https://raw.githack.com/SortableJS/Sortable/master/Sortable.js"></script>
 
     {{-- <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script> --}}
-    <script src="{{ asset('assets/js/html2canvas.js') }}?v={{ date('YmdHis') }}"></script>
+    {{-- html2canvas removed - PreviewRenderer now generates images server-side on-demand --}}
+    {{-- <script src="{{ asset('assets/js/html2canvas.js') }}?v={{ date('YmdHis') }}"></script> --}}
     {{-- <script src="https://cdnjs.cloudflare.com/ajax/libs/dom-to-image/2.6.0/dom-to-image.min.js"></script> --}}
     {{-- <script src="https://unpkg.com/html-to-image@1.11.13/dist/html-to-image.js"></script> --}}
     {{-- <script src="https://unpkg.com/rasterizehtml/dist/rasterizeHTML.allinone.js"></script> --}}

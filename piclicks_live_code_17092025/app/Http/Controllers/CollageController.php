@@ -387,22 +387,39 @@ class CollageController extends Controller
                     ->with(['images_empty_error' => 'Collage not found, try again.']);
             }
 
-            $designDataArray = $designCollagePreviewData instanceof \Illuminate\Database\Eloquent\Model
-                ? $designCollagePreviewData->toArray()
-                : (array) $designCollagePreviewData;
-
-            $previewRenderer = new PreviewRenderer();
-            $designDataArray['unique_id'] = $designDataArray['unique_id'] ?? $unique_id;
-            $previewResult = $previewRenderer->render($designDataArray, $images);
-            $previewPath = $previewResult['path'] ?? null;
-
-            if (!$previewPath) {
-                throw new \Exception('Failed to generate preview collage image.');
-            }
-
+            // Check if preview image already exists (cached)
+            $previewPath = 'temp/preview_' . $unique_id . '.png';
             $collageFullPath = storage_path('app/public/' . $previewPath);
-            if (!file_exists($collageFullPath)) {
-                throw new \Exception('Preview collage image not found at: ' . $collageFullPath);
+            
+            // Only regenerate if preview doesn't exist or is older than 24 hours
+            $shouldRegenerate = true;
+            if (file_exists($collageFullPath)) {
+                $fileTime = filemtime($collageFullPath);
+                $shouldRegenerate = (time() - $fileTime) > 86400; // 24 hours
+            }
+            
+            // Always regenerate for now to ensure previewResult is always set correctly
+            // TODO: Implement proper caching with metadata storage
+            $shouldRegenerate = true;
+            
+            if ($shouldRegenerate) {
+                $designDataArray = $designCollagePreviewData instanceof \Illuminate\Database\Eloquent\Model
+                    ? $designCollagePreviewData->toArray()
+                    : (array) $designCollagePreviewData;
+
+                $previewRenderer = new PreviewRenderer();
+                $designDataArray['unique_id'] = $designDataArray['unique_id'] ?? $unique_id;
+                $previewResult = $previewRenderer->render($designDataArray, $images);
+                $previewPath = $previewResult['path'] ?? null;
+
+                if (!$previewPath) {
+                    throw new \Exception('Failed to generate preview collage image.');
+                }
+
+                $collageFullPath = storage_path('app/public/' . $previewPath);
+                if (!file_exists($collageFullPath)) {
+                    throw new \Exception('Preview collage image not found at: ' . $collageFullPath);
+                }
             }
 
             $livingBackgroundPath = public_path('/assets/images/preview_livingroom.png');
@@ -422,9 +439,8 @@ class CollageController extends Controller
 
             $baseScaleFactor = $this->determineBaseScale($previewResult['cols'] ?? 1, $previewResult['rows'] ?? 1);
 
-            // Livingroom: Apply additional 14% reduction (multiply by 0.8624 = 0.88 * 0.98)
-            // Then reduce by 10% of current size: 0.8624 * 0.90 = 0.7762
-            $livingroomScaleFactor = $baseScaleFactor * 0.8624 * 0.90;
+            // Livingroom: Shrink by 25% (multiply by 0.75)
+            $livingroomScaleFactor = $baseScaleFactor * 0.75;
             $mergedImage1 = $this->composePreviewScene(
                 $livingBackground,
                 $collageResource,

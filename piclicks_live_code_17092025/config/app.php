@@ -60,6 +60,8 @@ return [
     'asset_url' => env('ASSET_URL'),
     
     'default_currency' => env('DEFAULT_CURRENCY', 'US$'),
+    
+    'version' => env('APP_VERSION', '1.0'),
 
     /*
     |--------------------------------------------------------------------------

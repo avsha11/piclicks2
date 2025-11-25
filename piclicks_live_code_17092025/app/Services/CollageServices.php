@@ -174,21 +174,9 @@ class CollageServices
                 }
             }
 
-            $imagePath = '';
-            if (!empty($request->collage_image)) {
-                // $imageFile = $request->file('collage_image');
-                // $imageName = 'frame_' . time() . '_' . uniqid() . '.' . $imageFile->getClientOriginalExtension();
-                // $imagePath = $imageFile->storeAs('public/designCollageImages', $imageName);
-                $imagePath = $this->uploadImage($request->collage_image, 'designCollageImages'); // from UploadImageTrait
-
-                if (!empty($imagePath) && $master_data->image_path) {
-                    $userPath = storage_path('app/public/');
-                    $oldImagePath = $userPath . ($master_data->image_path);
-                    if (File::exists($oldImagePath)) {
-                        File::delete($oldImagePath);
-                    }
-                }
-            }
+            // html2canvas removed - PreviewRenderer now generates images server-side on-demand
+            // No longer saving collage_image to image_path - PreviewRenderer handles image generation
+            // image_path field kept in database for backward compatibility with existing records
 
             $masterdata['grid_columns'] = $request->grid_columns;
             $masterdata['grid_rows'] = $request->grid_rows;
@@ -203,7 +191,8 @@ class CollageServices
                 $masterdata['user_id'] = 1;
             }
 
-            $masterdata['image_path'] = $imagePath;
+            // Don't update image_path - PreviewRenderer generates images on-demand
+            // Keep existing image_path for backward compatibility
 
             $this->DesignCollageRepository->updateMaster(['unique_id' => $request->unique_id], $masterdata);
 
@@ -1173,6 +1162,7 @@ class CollageServices
             $textX = floatval($textOverlay['x'] ?? 0);
             $textY = floatval($textOverlay['y'] ?? 0);
             $fontSize = floatval($textOverlay['font_size'] ?? 40);
+            $fontFamily = $textOverlay['font_family'] ?? 'Arial';
             $text = $textOverlay['text'] ?? '';
             $translateX = $textOverlay['translate_x'] ?? '-50%';
             $translateY = $textOverlay['translate_y'] ?? '-50%';
@@ -1185,8 +1175,12 @@ class CollageServices
             // This ensures the center calculation matches what PrintFileService will render
             $fontPath = $this->getFontPathForMeasurement($fontFamily);
             if ($fontPath && function_exists('imagettfbbox')) {
+                // Convert CSS pixels to points for imagettfbbox()
+                // CSS pixels are at 96 DPI: 1 CSS px = 1/96 inch = (72/96) points = 0.75 points
+                // GD's imagettfbbox() expects points, not pixels
+                $fontSizeInPoints = $fontSize * (72.0 / 96.0);
                 // Measure at editor font size (no rotation for bounding box calculation)
-                $bbox = imagettfbbox($fontSize, 0, $fontPath, $text);
+                $bbox = imagettfbbox($fontSizeInPoints, 0, $fontPath, $text);
                 if ($bbox !== false) {
                     $textWidth = abs($bbox[4] - $bbox[0]);
                     $textHeight = abs($bbox[5] - $bbox[1]);
@@ -1235,18 +1229,24 @@ class CollageServices
             if ($intersects) {
                 // Adjust text position to be relative to this tile (not global)
                 $adjustedTextOverlay = $textOverlay;
+                // Convert global center position to tile-relative center position
                 $adjustedTextOverlay['x'] = $centerX - $tileLeft;
                 $adjustedTextOverlay['y'] = $centerY - $tileTop;
                 // We've already accounted for translate in the center position
                 $adjustedTextOverlay['translate_x'] = 0;
                 $adjustedTextOverlay['translate_y'] = 0;
+                // Ensure rotation is preserved
+                if (!isset($adjustedTextOverlay['rotation'])) {
+                    $adjustedTextOverlay['rotation'] = floatval($textOverlay['rotation'] ?? 0);
+                }
                 
                 Log::info("Text overlay included on this tile", [
                     'text' => substr($text, 0, 20),
-                    'global_pos' => "x:{$centerX}, y:{$centerY}",
-                    'translate_px' => "x:{$translateXPx}, y:{$translateYPx}",
-                    'tile_relative_pos' => "x:{$adjustedTextOverlay['x']}, y:{$adjustedTextOverlay['y']}",
-                    'tile' => "col:{$tileStartCol}, row:{$tileStartRow}"
+                    'global_center' => "x:{$centerX}, y:{$centerY}",
+                    'tile_bounds' => "left:{$tileLeft}, top:{$tileTop}, right:{$tileRight}, bottom:{$tileBottom}",
+                    'tile_relative_center' => "x:{$adjustedTextOverlay['x']}, y:{$adjustedTextOverlay['y']}",
+                    'rotation' => $adjustedTextOverlay['rotation'],
+                    'tile' => "col:{$tileStartCol}, row:{$tileStartRow}, size:{$tileCols}x{$tileRows}"
                 ]);
                 
                 $tileTextOverlays[] = $adjustedTextOverlay;
@@ -1419,11 +1419,16 @@ class CollageServices
             $fontProperties['font_size'] = floatval($matches[1]);
         }
 
+        // Extract rotation from transform (handles both translate and rotate)
         if (preg_match('/transform:[^;]*rotate\(([^)]+)\)/', $styles, $matches)) {
-            $rotation = floatval(trim($matches[1], 'deg'));
+            $rotationStr = trim($matches[1]);
+            // Remove 'deg' if present
+            $rotationStr = rtrim($rotationStr, 'deg');
+            $rotation = floatval(trim($rotationStr));
             $fontProperties['rotation'] = $rotation;
         }
 
+        // Extract translate from transform (handles both translate and rotate)
         if (preg_match('/transform:[^;]*translate\(([^)]+)\)/', $styles, $matches)) {
             $parts = array_map('trim', explode(',', $matches[1]));
             if (count($parts) >= 2) {

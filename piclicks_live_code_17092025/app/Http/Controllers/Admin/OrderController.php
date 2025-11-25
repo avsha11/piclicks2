@@ -35,10 +35,10 @@ class OrderController extends Controller
     public function getOrderList(Request $request)
     {
         if ($request->ajax()) {
-            // $data = $this->orderRepository->getAll();
-            $data = Order::with(['orderdetail_data', 'shipping_country_data'])->get();
+            // Use server-side processing for better performance with large datasets
+            $query = Order::with(['orderdetail_data', 'shipping_country_data']);
 
-            return DataTables::of($data)
+            return DataTables::of($query)
                 ->addColumn('internal_order_id', function ($row) {
                     return '#' . $row->internal_order_id;
                 })

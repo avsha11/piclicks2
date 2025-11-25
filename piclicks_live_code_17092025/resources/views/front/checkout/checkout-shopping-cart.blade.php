@@ -35,11 +35,11 @@
             <div class="d-flex cart-product-card mb-5">
                 @if ($cartItemsData->name == 'collage' || $cartItemsData->name == 'artgallery')
                     <div class="img-box">
-                        <img src="{{ $imageSrc }}" alt="">
+                        <img src="{{ $imageSrc }}" alt="" loading="lazy">
                     </div>
                 @elseif ($cartItemsData->name == 'giftcard')
                     <div class="img-box">
-                        <img src="{{ asset('storage/' . $cartItemsData->giftcard->image) }}" alt="">
+                        <img src="{{ asset('storage/' . $cartItemsData->giftcard->image) }}" alt="" loading="lazy">
                     </div>
                 @endif
 

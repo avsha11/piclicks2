@@ -315,40 +315,47 @@ if (!function_exists('generatePaypalAccessToken')) {
                 return null; // Return null instead of throwing error
             }
 
-            $auth = base64_encode($clientId . ':' . $clientSecret);
+            // Cache PayPal access token for 8 hours (tokens typically last 9 hours)
+            // Use credentials hash as part of cache key to invalidate if credentials change
+            $credentialsHash = md5($clientId . $clientSecret . $baseUrl);
+            $cacheKey = 'paypal_access_token_' . $credentialsHash;
+            
+            return \Illuminate\Support\Facades\Cache::remember($cacheKey, 28800, function () use ($clientId, $clientSecret, $baseUrl) {
+                $auth = base64_encode($clientId . ':' . $clientSecret);
 
-            $url = $baseUrl . 'v1/oauth2/token';
+                $url = $baseUrl . 'v1/oauth2/token';
 
-            $headers = [
-                'Authorization: Basic ' . $auth,
-            ];
+                $headers = [
+                    'Authorization: Basic ' . $auth,
+                ];
 
-            $data = 'grant_type=client_credentials';
+                $data = 'grant_type=client_credentials';
 
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+                $ch = curl_init();
+                curl_setopt($ch, CURLOPT_URL, $url);
+                curl_setopt($ch, CURLOPT_POST, true);
+                curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
+                $response = curl_exec($ch);
+                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch);
 
-            if ($httpCode !== 200) {
-                \Log::error('PayPal API error: HTTP ' . $httpCode . ' | Response: ' . $response);
+                if ($httpCode !== 200) {
+                    \Log::error('PayPal API error: HTTP ' . $httpCode . ' | Response: ' . $response);
+                    return null;
+                }
+
+                $data = json_decode($response, true);
+
+                if (isset($data['access_token'])) {
+                    return $data['access_token'];
+                }
+
+                \Log::error('PayPal access token not found in response: ' . $response);
                 return null;
-            }
-
-            $data = json_decode($response, true);
-
-            if (isset($data['access_token'])) {
-                return $data['access_token'];
-            }
-
-            \Log::error('PayPal access token not found in response: ' . $response);
-            return null;
+            });
         } catch (\Exception $e) {
             \Log::error('Error generating PayPal access token: ' . $e->getMessage());
             return null;
@@ -368,7 +375,12 @@ if (!function_exists('calculateCart')) {
         $amountItemTotal = 0;
         $quantityTotal = 0;
 
-        $countryData = Countries::where('code', getCountryCode())->first() ?? 0;
+        // Cache country data lookup (24 hours)
+        $countryCode = getCountryCode();
+        $cacheKey = 'country_data_' . $countryCode;
+        $countryData = \Illuminate\Support\Facades\Cache::remember($cacheKey, 86400, function () use ($countryCode) {
+            return Countries::where('code', $countryCode)->first() ?? 0;
+        });
         $shippingAmount = $countryData['shipping_amount'] ?? 0;
         $saleTaxRate = $countryData['vat'] ?? 0;
 
@@ -416,14 +428,26 @@ if (!function_exists('calculateCart')) {
             $finalAmount = $amountItemTotal;
         }
 
+        // Cache view rendering if cart hasn't changed (5 minutes)
+        $cartHash = md5($cartItems->pluck('id')->implode(',') . $quantityTotal . $finalAmount);
+        $viewCacheKey = 'cart_views_' . $cartHash;
+        
+        $views = \Illuminate\Support\Facades\Cache::remember($viewCacheKey, 300, function () {
+            return [
+                'cartItem' => view('front.partials.Cart.cart-item')->render(),
+                'cartTotal' => view('front.partials.Cart.cart-total')->render(),
+                'checkoutshoppingCart' => view('front.checkout.checkout-shopping-cart')->render(),
+                'checkoutOrderSummary' => view('front.checkout.checkout-order-summary')->render(),
+            ];
+        });
+
         return [
             'total' => round($finalAmount, 2),
-            'cartItem' => view('front.partials.Cart.cart-item')->render(),
-            'cartTotal' => view('front.partials.Cart.cart-total')->render(),
+            'cartItem' => $views['cartItem'],
+            'cartTotal' => $views['cartTotal'],
             'cartTotalQuantity' => $quantityTotal,
-            'checkoutshoppingCart' => view('front.checkout.checkout-shopping-cart')->render(),
-            'checkoutOrderSummary' => view('front.checkout.checkout-order-summary')->render(),
-
+            'checkoutshoppingCart' => $views['checkoutshoppingCart'],
+            'checkoutOrderSummary' => $views['checkoutOrderSummary'],
         ];
     }
 }
@@ -438,21 +462,27 @@ if (!function_exists('getCountryCode')) {
 
         // Get user's IP address
         $ip = $_SERVER['REMOTE_ADDR'] ?? '8.8.8.8'; // fallback IP for testing
-        $response = @file_get_contents("http://ip-api.com/json/{$ip}");
+        
+        // Cache country code by IP for 24 hours to reduce API calls
+        $cacheKey = 'country_code_' . md5($ip);
+        $countryCode = \Illuminate\Support\Facades\Cache::remember($cacheKey, 86400, function () use ($ip) {
+            $response = @file_get_contents("http://ip-api.com/json/{$ip}");
 
-        // If the request is successful and data is valid
-        if ($response) {
-            $data = json_decode($response, true);
-            if (isset($data['status']) && $data['status'] === 'success') {
-                $countryCode = $data['countryCode'];
-                // Optionally store in session
-                session(['user_countryCode' => $countryCode]);
-                return $countryCode;
+            // If the request is successful and data is valid
+            if ($response) {
+                $data = json_decode($response, true);
+                if (isset($data['status']) && $data['status'] === 'success') {
+                    return $data['countryCode'];
+                }
             }
-        }
 
-        // Return default country code if everything fails
-        return 'IL';
+            // Return default country code if everything fails
+            return 'IL';
+        });
+        
+        // Store in session for current request
+        session(['user_countryCode' => $countryCode]);
+        return $countryCode;
     }
 }
 

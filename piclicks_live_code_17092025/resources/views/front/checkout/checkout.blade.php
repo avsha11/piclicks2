@@ -325,13 +325,13 @@
                                                             <div class="items-pur">
                                                                 <div class="check-flex">
                                                                     <div class="checkout-img">
-                                                                        @if ($cartItemsData->designCollageMaster->image_path)
-                                                                            <img
-                                                                                src="{{ asset('storage/' . $cartItemsData->designCollageMaster->image_path) }}">
-                                                                        @else
-                                                                            <img
-                                                                                src="{{ asset('assets/images/collage-image.png') }}">
-                                                                        @endif
+                                                                        @php
+                                                                            // Use PreviewRenderer image (same as Preview page) instead of html2canvas image
+                                                                            $uniqueId = $cartItemsData->designCollageMaster->unique_id ?? $cartItemsData->product_id ?? null;
+                                                                            $fallbackPath = $cartItemsData->designCollageMaster->image_path ?? null;
+                                                                            $imageSrc = getCollagePreviewImagePath($uniqueId, $fallbackPath);
+                                                                        @endphp
+                                                                        <img src="{{ $imageSrc }}" alt="">
                                                                     </div>
                                                                     <div class="w-100">
                                                                         <div class="d-flex-item">
@@ -435,13 +435,13 @@
                                                         <div class="items-pur">
                                                             <div class="check-flex">
                                                                 <div class="checkout-img">
-                                                                    @if ($cartItemsData->designCollageMaster->image_path)
-                                                                        <img
-                                                                            src="{{ asset('storage/' . $cartItemsData->designCollageMaster->image_path) }}">
-                                                                    @else
-                                                                        <img
-                                                                            src="{{ asset('assets/images/collage-image.png') }}">
-                                                                    @endif
+                                                                    @php
+                                                                        // Use PreviewRenderer image (same as Preview page) instead of html2canvas image
+                                                                        $uniqueId = $cartItemsData->designCollageMaster->unique_id ?? $cartItemsData->product_id ?? null;
+                                                                        $fallbackPath = $cartItemsData->designCollageMaster->image_path ?? null;
+                                                                        $imageSrc = getCollagePreviewImagePath($uniqueId, $fallbackPath);
+                                                                    @endphp
+                                                                    <img src="{{ $imageSrc }}" alt="">
                                                                 </div>
                                                                 <div class="w-100">
                                                                     <div class="d-flex-item">{{ $count }} Tile,

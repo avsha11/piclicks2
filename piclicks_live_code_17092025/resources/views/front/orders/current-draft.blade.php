@@ -220,14 +220,13 @@
 											<div class="post_wrap d-flex align-items-center">
 
 												<div class="post_img me-2">
-
-													<!-- <img src="{{ asset('storage/' . $order['image_path']) }}" class="img-fluid" alt="" style="width:50px; height:50px;"> -->
-
-															@if($order['image_path'])
-																<img src="{{ asset('storage/' . $order['image_path']) }}" class="img-fluid" alt="" style="width:50px; height:50px;">
-															@else
-																<img src="{{ asset('assets/images/collage-image.png')}}" alt="">
-															@endif
+													@php
+														// Use PreviewRenderer image (same as Preview page) instead of html2canvas image
+														$uniqueId = $order['unique_id'] ?? null;
+														$fallbackPath = $order['image_path'] ?? null;
+														$thumbnailUrl = getCollagePreviewImagePath($uniqueId, $fallbackPath);
+													@endphp
+													<img src="{{ $thumbnailUrl }}" class="img-fluid" alt="" style="width:50px; height:50px;">
 													<!--@if(isset($order['collage_images']) && count($order['collage_images']) > 0)-->
 
 													<!--	@foreach($order['collage_images'] as $collageImage)-->

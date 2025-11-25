@@ -26,7 +26,7 @@
     <link rel="stylesheet" href="{{ asset('assets/css/owl.theme.default.min.css') }}">
     <link rel="stylesheet" href="{{ asset('assets/css/owl.carousel.min.css') }}">
     <link rel="stylesheet" href="{{ asset('assets/css/sidebar-menu.css') }}">
-    <link rel="stylesheet" href="{{ asset('assets/css/style.css') }}?time={{ rand('2', '34') }}">
+    <link rel="stylesheet" href="{{ asset('assets/css/style.css') }}?v={{ config('app.version', '1.0') }}">
 </head>
 
 
@@ -44,19 +44,19 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"
     integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p" crossorigin="anonymous">
     </script>
-    <script src="https://unpkg.com/imagesloaded@5/imagesloaded.pkgd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://unpkg.com/imagesloaded@5/imagesloaded.pkgd.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11" defer></script>
     <!--Toaster JS-->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js" defer></script>
     <!-- Isotope for filtering/masonry layouts -->
-    <script src="https://unpkg.com/isotope-layout@3/dist/isotope.pkgd.min.js"></script>
+    <script src="https://unpkg.com/isotope-layout@3/dist/isotope.pkgd.min.js" defer></script>
     <!-- WOW.js for scroll animations -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/wow/1.1.2/wow.min.js"></script>
-    <script src="{{ asset('assets/js/slick.min.js') }}" type="text/javascript"></script>
-    <script src="{{ asset('assets/js/sidebar-menu.js') }}" type="text/javascript"></script>
-    <script src="{{ asset('assets/js/owl.carousel.min.js') }}" type="text/javascript"></script>
-    <script src="{{ asset('assets/js/custom.js') }}" type="text/javascript"></script>
-    <script src="{{ asset('assets/js/common/ajaxSubmission.js') }}?time={{ rand('2', '34') }}"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/wow/1.1.2/wow.min.js" defer></script>
+    <script src="{{ asset('assets/js/slick.min.js') }}" type="text/javascript" defer></script>
+    <script src="{{ asset('assets/js/sidebar-menu.js') }}" type="text/javascript" defer></script>
+    <script src="{{ asset('assets/js/owl.carousel.min.js') }}" type="text/javascript" defer></script>
+    <script src="{{ asset('assets/js/custom.js') }}" type="text/javascript" defer></script>
+    <script src="{{ asset('assets/js/common/ajaxSubmission.js') }}?v={{ config('app.version', '1.0') }}"></script>
     <script src="{{ url('livewire/livewire.js') }}" data-turbo-eval="false" data-turbolinks-eval="false"></script>
     
     <!-- Load custom scripts AFTER libraries -->

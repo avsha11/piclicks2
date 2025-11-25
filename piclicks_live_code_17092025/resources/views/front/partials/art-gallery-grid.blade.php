@@ -5,7 +5,7 @@
             <div class="product-main">
                 <div class="product-image">
                     <a href="{{ route('front.preview-design-collage', ['unique_id' => $value->unique_id]) }}">
-                    <img src="{{ asset('storage/' . $value->image_path) }}" class="img-responsive">
+                    <img src="{{ asset('storage/' . $value->image_path) }}" class="img-responsive" loading="lazy" alt="{{ $value->admin_data->title ?? 'Art Gallery Image' }}">
                     <div class="product-sale">
                         <button class="btn btn-heart toggle-fav {{ $value->favorites_data->isNotEmpty() ? 'active' : '' }}" 
                             data-unique-id="{{ $value->unique_id }}">

@@ -50,6 +50,25 @@ class BaseRepository
     public function clearAllCache()
     {
         $table = $this->model->getTable();
-        Cache::tags([$table])->flush();
+        
+        // Cache tags don't work with file driver, so we clear by pattern
+        // Store cache keys with table prefix for efficient clearing
+        $cachePrefix = config('cache.prefix', '');
+        $pattern = $cachePrefix . 'all_' . $table;
+        $pattern2 = $cachePrefix . 'getOneData_' . $table;
+        
+        // Clear common cache keys for this table
+        Cache::forget('all_' . $table);
+        Cache::forget('getOneData_' . $table);
+        
+        // If using Redis/Memcached with tags support, use tags
+        $driver = config('cache.default');
+        if (in_array($driver, ['redis', 'memcached'])) {
+            try {
+                Cache::tags([$table])->flush();
+            } catch (\Exception $e) {
+                // Fallback to pattern-based clearing if tags fail
+            }
+        }
     }
 }

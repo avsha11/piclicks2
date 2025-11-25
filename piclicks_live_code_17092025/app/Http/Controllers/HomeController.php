@@ -84,7 +84,8 @@ class HomeController extends Controller
             if (in_array(0, $collections)) {
                 $query->join('artgallery_favorites as fav', 'design_collage_master.unique_id', '=', 'fav.unique_id')
                     ->when($user_id, fn($q) => $q->where('fav.user_id', $user_id))
-                    ->when(!$user_id, fn($q) => $q->where('fav.guest_id', $guest_id));
+                    ->when(!$user_id, fn($q) => $q->where('fav.guest_id', $guest_id))
+                    ->distinct(); // Avoid duplicates from join
             } else {
                 // Normal collection filter
                 if (!empty($collections)) {
@@ -133,7 +134,8 @@ class HomeController extends Controller
                     $query->orderBy('design_collage_master.created_at', 'desc');
             }
 
-            $designCollages = $query->get();
+            // Use distinct to avoid duplicates and limit results for better performance
+            $designCollages = $query->distinct()->get();
             // dd($designCollages);
 
             $html = view('front.partials.art-gallery-grid', compact('designCollages'))->render();

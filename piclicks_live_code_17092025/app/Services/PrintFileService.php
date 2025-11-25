@@ -64,7 +64,7 @@ class PrintFileService
         $this->frameInnerCornerRadiusPx = $this->mmToPx(self::FRAME_INNER_CORNER_RADIUS_MM);
         $this->frameImageOverscanPx = max(1, $this->mmToPx(self::FRAME_IMAGE_OVERSCAN_MM));
         
-        Log::info("PrintFileService initialized", [
+        Log::debug("PrintFileService initialized", [
             'clearTile' => "{$this->clearTileWPx}x{$this->clearTileHPx}px",
             'printTile' => "{$this->printTileWPx}x{$this->printTileHPx}px",
             'bleed' => "{$this->bleedPx}px",
@@ -83,7 +83,7 @@ class PrintFileService
     public function generatePrintFiles(array $blockConfig): array
     {
         try {
-            Log::info("generatePrintFiles started", [
+            Log::debug("generatePrintFiles started", [
                 'image' => $blockConfig['image_path'] ?? 'N/A',
                 'span' => ($blockConfig['cols'] ?? 1) . 'x' . ($blockConfig['rows'] ?? 1),
             ]);
@@ -112,7 +112,7 @@ class PrintFileService
             $blockPrintW = $blockClearW + (2 * $this->bleedPx);
             $blockPrintH = $blockClearH + (2 * $this->bleedPx);
             
-            Log::info("Block dimensions", [
+            Log::debug("Block dimensions", [
                 'clear' => "{$blockClearW}x{$blockClearH}px",
                 'withBleed' => "{$blockPrintW}x{$blockPrintH}px",
             ]);
@@ -201,7 +201,7 @@ class PrintFileService
                 imagedestroy($frameCanvas);
             }
             
-            Log::info("generatePrintFiles completed", ['tiles' => count($tileExportPaths)]);
+            Log::debug("generatePrintFiles completed", ['tiles' => count($tileExportPaths)]);
             return [true, $tileExportPaths];
             
         } catch (\Exception $e) {
@@ -224,7 +224,7 @@ class PrintFileService
     public function generatePreviewTiles(array $blockConfig, float $targetTileWidthPx = 91.0): array
     {
         try {
-            Log::info("generatePreviewTiles started", [
+            Log::debug("generatePreviewTiles started", [
                 'image' => $blockConfig['image_path'] ?? 'N/A',
                 'span' => ($blockConfig['cols'] ?? 1) . 'x' . ($blockConfig['rows'] ?? 1),
             ]);
@@ -517,7 +517,7 @@ class PrintFileService
         
         // Log for debugging
         if ($visibleAreaOnly) {
-            Log::info("Preview zoom calculation (simplified)", [
+            Log::debug("Preview zoom calculation (simplified)", [
                 'src' => "{$srcW}x{$srcH}",
                 'target' => "{$targetW}x{$targetH}",
                 'editorBlock' => ($editorBlockW ?? 'N/A') . 'x' . ($editorBlockH ?? 'N/A'),
@@ -556,7 +556,7 @@ class PrintFileService
         
         imagedestroy($sourceImage);
         
-        Log::info("Image rendered", [
+        Log::debug("Image rendered", [
             'src' => "{$srcW}x{$srcH}px",
             'scaled' => "{$scaledW}x{$scaledH}px",
             'position' => "{$dstX},{$dstY}",
@@ -577,14 +577,14 @@ class PrintFileService
      */
     private function applyFilter($canvas, string $filter): void
     {
-        Log::info("Applying filter", ['filter' => $filter]);
+        Log::debug("Applying filter", ['filter' => $filter]);
         
         switch ($filter) {
             case 'filter-noir':
                 // CSS: grayscale(100%) contrast(1.2) = grayscale(100%) contrast(120%)
                 imagefilter($canvas, IMG_FILTER_GRAYSCALE);
                 imagefilter($canvas, IMG_FILTER_CONTRAST, -20); // 120% contrast = -20 in GD
-                Log::info("Applied noir filter", ['steps' => 'grayscale + contrast(120%)']);
+                Log::debug("Applied noir filter", ['steps' => 'grayscale + contrast(120%)']);
                 break;
                 
             case 'filter-stark':
@@ -592,7 +592,7 @@ class PrintFileService
                 // Apply partial grayscale by reducing saturation
                 imagefilter($canvas, IMG_FILTER_CONTRAST, 10); // 90% contrast = +10 in GD
                 imagefilter($canvas, IMG_FILTER_COLORIZE, 0, 0, 0, 64); // 50% desaturation
-                Log::info("Applied stark filter", ['steps' => 'contrast(90%) + desaturate(50%)']);
+                Log::debug("Applied stark filter", ['steps' => 'contrast(90%) + desaturate(50%)']);
                 break;
                 
             case 'filter-scandi':
@@ -601,7 +601,7 @@ class PrintFileService
                 imagefilter($canvas, IMG_FILTER_CONTRAST, -5); // 105% contrast = -5
                 // Slight warm tint for hue-rotate simulation
                 imagefilter($canvas, IMG_FILTER_COLORIZE, 15, 8, -5, 0);
-                Log::info("Applied scandi filter", ['steps' => 'brightness(120%) + contrast(105%) + warm tint']);
+                Log::debug("Applied scandi filter", ['steps' => 'brightness(120%) + contrast(105%) + warm tint']);
                 break;
                 
             case 'filter-capri':
@@ -610,7 +610,7 @@ class PrintFileService
                 imagefilter($canvas, IMG_FILTER_BRIGHTNESS, 10); // 110% brightness = +10
                 // Blue/cyan tint for hue-rotate(-30deg)
                 imagefilter($canvas, IMG_FILTER_COLORIZE, -15, 5, 35, 0);
-                Log::info("Applied capri filter", ['steps' => 'contrast(120%) + brightness(110%) + cool tint']);
+                Log::debug("Applied capri filter", ['steps' => 'contrast(120%) + brightness(110%) + cool tint']);
                 break;
                 
             case 'filter-nordic':
@@ -620,7 +620,7 @@ class PrintFileService
                 // Sepia + slight cool tint
                 imagefilter($canvas, IMG_FILTER_GRAYSCALE);
                 imagefilter($canvas, IMG_FILTER_COLORIZE, 30, 25, 15, 0); // Warm sepia tone
-                Log::info("Applied nordic filter", ['steps' => 'contrast(110%) + brightness(80%) + sepia']);
+                Log::debug("Applied nordic filter", ['steps' => 'contrast(110%) + brightness(80%) + sepia']);
                 break;
                 
             case 'filter-belveder':
@@ -630,7 +630,7 @@ class PrintFileService
                 // Stronger sepia tone
                 imagefilter($canvas, IMG_FILTER_GRAYSCALE);
                 imagefilter($canvas, IMG_FILTER_COLORIZE, 100, 60, 35, 0); // Rich sepia tone
-                Log::info("Applied belveder filter", ['steps' => 'contrast(115%) + brightness(90%) + rich sepia']);
+                Log::debug("Applied belveder filter", ['steps' => 'contrast(115%) + brightness(90%) + rich sepia']);
                 break;
                 
             default:
@@ -638,7 +638,7 @@ class PrintFileService
                 break;
         }
         
-        Log::info("Filter application completed", ['filter' => $filter]);
+        Log::debug("Filter application completed", ['filter' => $filter]);
     }
     
     /**
@@ -666,7 +666,7 @@ class PrintFileService
         
         $frameOffset = (!empty($frameConfig['exists'])) ? $this->framePrintThicknessPx : 0;
         
-        Log::info("Text rendering scale factors", [
+        Log::debug("Text rendering scale factors", [
             'block_cols' => $blockCols,
             'block_rows' => $blockRows,
             'editor_block_px' => "{$editorBlockW}x{$editorBlockH}",
@@ -691,16 +691,34 @@ class PrintFileService
             $translateX = $textOverlay['translate_x'] ?? '-50%';
             $translateY = $textOverlay['translate_y'] ?? '-50%';
             
-            // Scale CSS font-size (editor px) into print pixels.
-            // Analysis: Previous code converted to points using (72/300) = 0.24, making text 4.17x too small.
-            // Root cause: imagettftext() expects points, but the conversion was incorrect for 300 DPI rendering.
-            // Fix: Pass pixel size directly - GD will interpret it correctly at the canvas resolution.
-            // At 300 DPI, passing pixel size directly to imagettftext() produces correct visual size.
-            $printFontSizePx = max(1.0, $editorFontSize * $avgScale);
-            // Use pixel size directly (GD handles the DPI conversion internally)
-            $gdFontSize = $printFontSizePx;
+            // Scale CSS font-size (editor px) into print pixels, then convert to points for GD
+            // Editor font size is in CSS pixels (96 DPI), scale to print pixels (300 DPI) using the same scale as positions
+            // Use uniform scale factor (average of X and Y) for fonts to maintain aspect ratio
+            $uniformScale = $avgScale;
+            $printFontSizePx = max(1.0, $editorFontSize * $uniformScale);
+            
+            // Convert print pixels to points for imagettftext()
+            // GD's imagettftext() expects font size in points (1 point = 1/72 inch)
+            // At 300 DPI: 1 pixel = 1/300 inch
+            // 1 point = 1/72 inch = (300/72) pixels = 4.167 pixels at 300 DPI
+            // So: points = printPixels / (300/72) = printPixels * (72/300)
+            // However, we need to account for the fact that CSS pixels are at 96 DPI
+            // CSS 1px at 96 DPI = 1/96 inch = (72/96) points = 0.75 points
+            // Print 1px at 300 DPI = 1/300 inch = (72/300) points = 0.24 points
+            // The scale factor already accounts for the pixel size difference
+            // So we just need: gdFontSize = printFontSizePx * (72 / DPI)
+            $gdFontSize = $printFontSizePx * (72.0 / self::DPI);
+            // CSS rotation: positive = clockwise
+            // GD rotation: positive = counter-clockwise  
+            // To match CSS visual rotation, we need to negate
             $cssRotationDegrees = $rotation;
             $gdRotationDegrees = 0 - $cssRotationDegrees;
+            
+            // Convert tile-relative editor coordinates to print coordinates
+            // Editor coordinates are relative to the tile's top-left (0,0) in editor pixels
+            // Print coordinates are relative to the block canvas top-left (0,0) in print pixels
+            // The editorX/Y are already tile-relative center positions from CollageServices
+            // Scale to print pixels and add bleed offset
             $centerX = (int) round($editorX * $scaleFactorX) + $this->bleedPx;
             $centerY = (int) round($editorY * $scaleFactorY) + $this->bleedPx;
             
@@ -714,31 +732,56 @@ class PrintFileService
                 continue;
             }
             
-            // Measure text extent at print scale for translate adjustments
-            $bbox = imagettfbbox($gdFontSize, 0, $fontPath, $text);
-            $textWidthPx = abs($bbox[4] - $bbox[0]);
-            $textHeightPx = abs($bbox[5] - $bbox[1]);
+            // Note: translate is already applied in CollageServices when calculating centerX/centerY
+            // The x/y values passed here are already the center position with translate included
+            // So we don't need to apply translate again here
             
-            $translateXPx = $this->convertCssTranslateToPixels($translateX, $textWidthPx, $printFontSizePx);
-            $translateYPx = $this->convertCssTranslateToPixels($translateY, $textHeightPx, $printFontSizePx);
+            // Check if text center is within reasonable bounds of the tile (in editor coordinates)
+            // If position is too far outside (more than 2x text size), skip rendering
+            // This handles cases where text center is outside tile but text still intersects
+            $maxTextSizeEditor = max($editorFontSize * 2, 200); // At least 200px buffer in editor coords
+            $tileRelativeX = $editorX; // Already tile-relative from CollageServices (in editor pixels)
+            $tileRelativeY = $editorY;
             
-            $centerX += (int) round($translateXPx);
-            $centerY += (int) round($translateYPx);
+            // Skip if center is way outside tile bounds (text won't be visible)
+            // $editorBlockW and $editorBlockH are already calculated above
+            if ($tileRelativeX < -$maxTextSizeEditor || $tileRelativeX > $editorBlockW + $maxTextSizeEditor ||
+                $tileRelativeY < -$maxTextSizeEditor || $tileRelativeY > $editorBlockH + $maxTextSizeEditor) {
+                Log::debug("Skipping text overlay - center too far outside tile bounds", [
+                    'text' => substr($text, 0, 20),
+                    'tile_relative_pos' => "{$tileRelativeX},{$tileRelativeY}",
+                    'editor_block_size' => "{$editorBlockW}x{$editorBlockH}",
+                    'max_text_size' => $maxTextSizeEditor
+                ]);
+                continue;
+            }
             
             $rgb = $this->hexToRgb($color);
             $textColor = imagecolorallocate($canvas, $rgb[0], $rgb[1], $rgb[2]);
             
-            Log::info("Rendering text overlay", [
+            // Calculate expected print position for verification
+            $expectedPrintX = $editorX * $scaleFactorX + $this->bleedPx;
+            $expectedPrintY = $editorY * $scaleFactorY + $this->bleedPx;
+            
+            Log::debug("Rendering text overlay", [
                 'index' => $idx,
                 'text' => substr($text, 0, 30),
+                'editor_font_size_px' => $editorFontSize,
                 'editor_pos' => "{$editorX},{$editorY}",
+                'scale_factors' => "X:{$scaleFactorX}, Y:{$scaleFactorY}, avg:{$avgScale}",
+                'print_font_size_px' => round($printFontSizePx, 2),
+                'print_font_size_pt' => round($gdFontSize, 2),
+                'font_size_calc' => "{$editorFontSize} * {$avgScale} = {$printFontSizePx}px, * (72/300) = {$gdFontSize}pt",
                 'print_center' => "{$centerX},{$centerY}",
+                'expected_print_center' => round($expectedPrintX, 1) . "," . round($expectedPrintY, 1),
+                'position_calc' => "({$editorX} * {$scaleFactorX} + {$this->bleedPx}, {$editorY} * {$scaleFactorY} + {$this->bleedPx})",
                 'translate' => "{$translateX},{$translateY}",
-                'font_px' => round($printFontSizePx, 2),
-                'font_pt' => round($gdFontSize, 2),
                 'rotation_css' => $cssRotationDegrees,
                 'rotation_gd' => $gdRotationDegrees,
-                'font' => basename($fontPath)
+                'font' => basename($fontPath),
+                'block_size' => "{$blockClearW}x{$blockClearH}",
+                'editor_block_size' => "{$editorBlockW}x{$editorBlockH}",
+                'bleed_px' => $this->bleedPx
             ]);
             
             $bboxRotated = imagettfbbox($gdFontSize, $gdRotationDegrees, $fontPath, $text);
@@ -755,7 +798,7 @@ class PrintFileService
             imagettftext($canvas, $gdFontSize, $gdRotationDegrees, (int) round($baselineX), (int) round($baselineY), $textColor, $fontPath, $text);
         }
         
-        Log::info("Text rendering completed", ['total_overlays' => count($textOverlays)]);
+        Log::debug("Text rendering completed", ['total_overlays' => count($textOverlays)]);
     }
     
     private function convertCssTranslateToPixels($value, float $referenceSize, int $fallbackSize): float
@@ -847,7 +890,7 @@ class PrintFileService
             $this->drawFilledRoundedRect($frameCanvas, $innerX, $innerY, $innerW, $innerH, $this->frameInnerCornerRadiusPx, $innerTransparent);
         }
         
-        Log::info("Frame rendered", [
+        Log::debug("Frame rendered", [
             'size' => "{$blockW}x{$blockH}px",
             'thickness' => "{$this->framePrintThicknessPx}px",
         ]);
@@ -951,7 +994,7 @@ class PrintFileService
         $fullPath = $basePath . $fileName;
         
         if (imagepng($canvas, $fullPath)) {
-            Log::info("Tile saved", ['path' => $fileName, 'row' => $row, 'col' => $col]);
+            Log::debug("Tile saved", ['path' => $fileName, 'row' => $row, 'col' => $col]);
             return $fileName;
         }
         
@@ -1027,7 +1070,7 @@ class PrintFileService
                 foreach ($fontFiles as $fontFile) {
                     $fontPath = $directory . $fontFile;
                     if (file_exists($fontPath)) {
-                        Log::info("Font found", ['font' => $fontFamily, 'path' => $fontPath]);
+                        Log::debug("Font found", ['font' => $fontFamily, 'path' => $fontPath]);
                         return $fontPath;
                     }
                 }
@@ -1042,7 +1085,7 @@ class PrintFileService
                 foreach ($arialFiles as $fontFile) {
                     $fontPath = $directory . $fontFile;
                     if (file_exists($fontPath)) {
-                        Log::info("Using Arial fallback", ['path' => $fontPath]);
+                        Log::debug("Using Arial fallback", ['path' => $fontPath]);
                         return $fontPath;
                     }
                 }

@@ -144,21 +144,20 @@
                                                     $productData = DB::table('design_collage_master')
                                                         ->where('unique_id', $product->collage_unique_id)
                                                         ->first();
+                                                    
+                                                    // Use PreviewRenderer image (same as Preview page) instead of html2canvas image
+                                                    $uniqueId = $product->collage_unique_id ?? null;
+                                                    $fallbackPath = $productData->image_path ?? null;
+                                                    $thumbnailUrl = getCollagePreviewImagePath($uniqueId, $fallbackPath);
                                                 @endphp
 
                                                 <div class="d-flex align-items-center border-bottom pb-2 mb-2">
                                                     <!-- Product Image -->
                                                     <div class="product-img me-3">
-                                                        @if (isset($productData->image_path) && $productData->image_path != null)
-                                                            <img src="{{ asset('/storage/' . $productData->image_path) }}"
-                                                                class="img-fluid rounded"
-                                                                alt="{{ $productData->name ?? null }}"
-                                                                style="width: 60px; height: 60px;">
-                                                        @else
-                                                            <img src="{{ asset('assets/images/collage-image.png') }}"
-                                                                class="img-fluid rounded"
-                                                                style="width: 60px; height: 60px;">
-                                                        @endif
+                                                        <img src="{{ $thumbnailUrl }}"
+                                                            class="img-fluid rounded"
+                                                            alt="{{ $productData->name ?? null }}"
+                                                            style="width: 60px; height: 60px;">
                                                     </div>
 
 

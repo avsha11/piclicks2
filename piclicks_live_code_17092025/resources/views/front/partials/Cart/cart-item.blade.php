@@ -36,11 +36,11 @@
         <div class="check-flex">
             @if ($cartItemsData->name == 'collage' || $cartItemsData->name == 'artgallery')
                 <div class="checkout-img">
-                    <img src="{{ $imageSrc }}" alt="">
+                    <img src="{{ $imageSrc }}" alt="" loading="lazy">
                 </div>
             @elseif ($cartItemsData->name == 'giftcard')
                 <div class="checkout-img">
-                    <img src="{{ asset('storage/' . $cartItemsData->giftcard->image) }}" alt="">
+                    <img src="{{ asset('storage/' . $cartItemsData->giftcard->image) }}" alt="" loading="lazy">
                 </div>
                 {{-- <div class="minicart-giftcard">
                     @include('front.component.gift-card-component', [

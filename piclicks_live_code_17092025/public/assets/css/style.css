@@ -3839,7 +3839,7 @@ p.privacy-p {
 
 .check-flex .checkout-img img {
   width: 50px;
-  border-radius: 10px;
+  border-radius: 0;
 }
 
 @media only screen and (min-width: 400px) and (max-width: 767px) {
@@ -4506,7 +4506,7 @@ ul.nav-pills .nav-link:hover {
   height: auto;
   object-fit: contain;
   object-position: center;
-  border-radius: 10px;
+  border-radius: 0;
   display: block;
 }
 
