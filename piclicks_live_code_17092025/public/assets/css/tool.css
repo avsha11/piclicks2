@@ -227,6 +227,7 @@
     padding: 5px 10px;
     border-radius: 5px;
     width: max-content;
+    z-index: 100 !important; /* Text must be on top of all tiles and images */
 }
 
 .text-remove {
@@ -642,7 +643,18 @@ div#image {
     height: var(--image-div-height);
     float: left;
     margin: 2px;
+    position: relative;
     /* aspect-ratio: 1.2/1; */
+}
+
+/* Empty tiles - lower z-index so they appear below occupied tiles */
+.image-div:has(.select-image-pop) {
+    z-index: 1 !important;
+}
+
+/* Occupied tiles (single or stretched) - higher z-index so they appear above empty tiles */
+.image-div:has(.open-edit-pop) {
+    z-index: 5 !important;
 }
 
 .image-div.selected {

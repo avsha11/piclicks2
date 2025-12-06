@@ -119,12 +119,17 @@ class PrintFileService
             
             // Create block canvas with bleed (white background for photos)
             $blockCanvas = imagecreatetruecolor($blockPrintW, $blockPrintH);
+            // Disable alpha blending for initial fill
             imagealphablending($blockCanvas, false);
-            imagesavealpha($blockCanvas, true);
+            // Don't save alpha channel for photo canvas (opaque white background)
+            imagesavealpha($blockCanvas, false);
             
             // Fill with white background (photos print on white paper)
             $white = imagecolorallocate($blockCanvas, 255, 255, 255);
             imagefilledrectangle($blockCanvas, 0, 0, $blockPrintW, $blockPrintH, $white);
+            
+            // Re-enable alpha blending for image compositing
+            imagealphablending($blockCanvas, true);
             
             // RENDER ORDER (bottom to top): Image → Filter → Text → Frame
             // Following constants.json RENDER_ORDER: frame, text, filter, image
@@ -692,21 +697,18 @@ class PrintFileService
             $translateY = $textOverlay['translate_y'] ?? '-50%';
             
             // Scale CSS font-size (editor px) into print pixels, then convert to points for GD
-            // Editor font size is in CSS pixels (96 DPI), scale to print pixels (300 DPI) using the same scale as positions
+            // Editor font size is in CSS pixels, scale to print pixels using the same scale as positions
             // Use uniform scale factor (average of X and Y) for fonts to maintain aspect ratio
             $uniformScale = $avgScale;
-            $printFontSizePx = max(1.0, $editorFontSize * $uniformScale);
+            $textSizeMultiplier = 3.5; // Enlarge text layer by 3.5x as requested
+            $printFontSizePx = max(1.0, $editorFontSize * $uniformScale * $textSizeMultiplier);
             
             // Convert print pixels to points for imagettftext()
             // GD's imagettftext() expects font size in points (1 point = 1/72 inch)
-            // At 300 DPI: 1 pixel = 1/300 inch
-            // 1 point = 1/72 inch = (300/72) pixels = 4.167 pixels at 300 DPI
-            // So: points = printPixels / (300/72) = printPixels * (72/300)
-            // However, we need to account for the fact that CSS pixels are at 96 DPI
-            // CSS 1px at 96 DPI = 1/96 inch = (72/96) points = 0.75 points
-            // Print 1px at 300 DPI = 1/300 inch = (72/300) points = 0.24 points
-            // The scale factor already accounts for the pixel size difference
-            // So we just need: gdFontSize = printFontSizePx * (72 / DPI)
+            // At 300 DPI: 1 pixel = 1/300 inch = (72/300) points = 0.24 points
+            // So: points = printPixels * (72/300)
+            // However, GD's point size at a given DPI should match the visual size
+            // For accurate rendering, we use: gdFontSize = printFontSizePx * (72 / DPI)
             $gdFontSize = $printFontSizePx * (72.0 / self::DPI);
             // CSS rotation: positive = clockwise
             // GD rotation: positive = counter-clockwise  
@@ -715,10 +717,9 @@ class PrintFileService
             $gdRotationDegrees = 0 - $cssRotationDegrees;
             
             // Convert tile-relative editor coordinates to print coordinates
-            // Editor coordinates are relative to the tile's top-left (0,0) in editor pixels
-            // Print coordinates are relative to the block canvas top-left (0,0) in print pixels
-            // The editorX/Y are already tile-relative center positions from CollageServices
-            // Scale to print pixels and add bleed offset
+            // Editor coordinates are relative to the tile's top-left (0,0)
+            // Print coordinates need to account for bleed offset
+            // The editorX/Y are already tile-relative from CollageServices
             $centerX = (int) round($editorX * $scaleFactorX) + $this->bleedPx;
             $centerY = (int) round($editorY * $scaleFactorY) + $this->bleedPx;
             
@@ -759,29 +760,21 @@ class PrintFileService
             $rgb = $this->hexToRgb($color);
             $textColor = imagecolorallocate($canvas, $rgb[0], $rgb[1], $rgb[2]);
             
-            // Calculate expected print position for verification
-            $expectedPrintX = $editorX * $scaleFactorX + $this->bleedPx;
-            $expectedPrintY = $editorY * $scaleFactorY + $this->bleedPx;
-            
             Log::debug("Rendering text overlay", [
                 'index' => $idx,
                 'text' => substr($text, 0, 30),
-                'editor_font_size_px' => $editorFontSize,
+                'editor_font_size' => $editorFontSize,
                 'editor_pos' => "{$editorX},{$editorY}",
                 'scale_factors' => "X:{$scaleFactorX}, Y:{$scaleFactorY}, avg:{$avgScale}",
                 'print_font_size_px' => round($printFontSizePx, 2),
                 'print_font_size_pt' => round($gdFontSize, 2),
-                'font_size_calc' => "{$editorFontSize} * {$avgScale} = {$printFontSizePx}px, * (72/300) = {$gdFontSize}pt",
                 'print_center' => "{$centerX},{$centerY}",
-                'expected_print_center' => round($expectedPrintX, 1) . "," . round($expectedPrintY, 1),
-                'position_calc' => "({$editorX} * {$scaleFactorX} + {$this->bleedPx}, {$editorY} * {$scaleFactorY} + {$this->bleedPx})",
                 'translate' => "{$translateX},{$translateY}",
                 'rotation_css' => $cssRotationDegrees,
                 'rotation_gd' => $gdRotationDegrees,
                 'font' => basename($fontPath),
                 'block_size' => "{$blockClearW}x{$blockClearH}",
-                'editor_block_size' => "{$editorBlockW}x{$editorBlockH}",
-                'bleed_px' => $this->bleedPx
+                'editor_block_size' => "{$editorBlockW}x{$editorBlockH}"
             ]);
             
             $bboxRotated = imagettfbbox($gdFontSize, $gdRotationDegrees, $fontPath, $text);

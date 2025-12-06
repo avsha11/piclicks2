@@ -374,7 +374,7 @@
                                     <img src="{{ asset('assets/images/layout-grid.png') }}">
                                     <div class="con_framebox">
                                         <h5>Normal Grid
-                                            <span class="d-none loader" style="left: 20%;top: 39%;"></span>
+                                            <span class="d-none loader" style="left: 20%;top: 39%;">
                                         </h5>
                                     </div>
                                 </label>
@@ -387,9 +387,8 @@
                                 <label class="add-active" for="dynamic-grid">
                                     <img src="{{ asset('assets/images/layout-play.png') }}">
                                     <div class="con_framebox">
-                                        <h5>Dynamic Grid
-                                            <span class="d-none loader" style="left: 69%;top: 38%;"></span>
-                                        </h5>
+                                        <h5>Dynamic Grid</h5>
+                                        <span class="d-none loader" style="left: 69%;top: 38%;">
                                     </div>
                                 </label>
                             </div>

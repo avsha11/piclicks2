@@ -1638,10 +1638,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     console.log('style ', tile.attr('style'));
                     // calcGridDimension()
                     // placeTiles(); // Recalculate grid layout
-                    // Check what frame class is currently applied (before any changes)
-                    const hasBlackFrame = tile[0].classList.contains('success-black-outlined');
-                    const hasWhiteFrame = tile[0].classList.contains('success-white-outlined');
-                    
                     tile.find("svg").remove();
                     if (newW !== 1 || newH !== 1) {
                         // Apply clip-path for layout stretched images
@@ -1649,26 +1645,10 @@ document.addEventListener("DOMContentLoaded", () => {
                         tile.append(svg);
                         tile[0].style.clipPath = `url(#${clipPathId})`;
                         tile[0].dataset.clipPathId = clipPathId;
-                        
-                        // Ensure frame class remains applied
-                        if (hasBlackFrame) {
-                            tile[0].classList.add('success-black-outlined');
-                        }
-                        if (hasWhiteFrame) {
-                            tile[0].classList.add('success-white-outlined');
-                        }
                     } else {
                         // Single tile - remove clip-path
                         tile[0].style.clipPath = 'none';
                         delete tile[0].dataset.clipPathId;
-                        
-                        // Ensure frame class remains applied for single tile
-                        if (hasBlackFrame) {
-                            tile[0].classList.add('success-black-outlined');
-                        }
-                        if (hasWhiteFrame) {
-                            tile[0].classList.add('success-white-outlined');
-                        }
                     }
                 }
             });
@@ -1679,208 +1659,95 @@ document.addEventListener("DOMContentLoaded", () => {
                 $('#normal-grid').parent().find('.loader').addClass('d-none');
             }, 500);
         } else if (layoutId === "dynamic-grid") {
-            $('#dynamic-grid').closest('.form-check').find('.loader').removeClass('d-none');
+            $('#dynamic-grid').parent().find('.loader').removeClass('d-none');
+            // Randomly enlarge some tiles with .open-edit-pop
             // Get all tiles with .open-edit-pop inside .image-div
             const tilesWithOpenEdit = Array.from(document.querySelectorAll('.image-div .open-edit-pop'))
-                .map(img => img.closest('.image-div'))
-                .filter(tile => tile !== null);
-            
-            if (tilesWithOpenEdit.length < 2) {
-                console.log('Not enough images to apply dynamic grid (need at least 2)');
-                $('#dynamic-grid').closest('.form-check').find('.loader').addClass('d-none');
-                return;
+                .map(img => img.closest('.image-div'));
+            // Shuffle the array
+            for (let i = tilesWithOpenEdit.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [tilesWithOpenEdit[i], tilesWithOpenEdit[j]] = [tilesWithOpenEdit[j], tilesWithOpenEdit[i]];
             }
-            
-            let grid_columns = parseInt(document.getElementById("grid_columns").value);
-            let grid_rows = parseInt(document.getElementById("grid_rows").value);
-            
-            // Calculate center position for each tile to find opposite edges
-            const tilesWithPositions = tilesWithOpenEdit.map(tile => {
-                const $tile = $(tile);
-                const left = parseInt($tile.css("left")) || 0;
-                const top = parseInt($tile.css("top")) || 0;
-                const width = parseInt($tile.css("width")) || actualWidth;
-                const height = parseInt($tile.css("height")) || actualHeight;
-                // Calculate center point
-                const centerX = left + (width / 2);
-                const centerY = top + (height / 2);
-                return {
-                    tile: tile,
-                    centerX: centerX,
-                    centerY: centerY,
-                    left: left,
-                    top: top
-                };
-            });
-            
-            // Find two tiles at opposite edges (maximum distance)
-            let maxDistance = 0;
-            let tile1 = null;
-            let tile2 = null;
-            
-            for (let i = 0; i < tilesWithPositions.length; i++) {
-                for (let j = i + 1; j < tilesWithPositions.length; j++) {
-                    const dx = tilesWithPositions[i].centerX - tilesWithPositions[j].centerX;
-                    const dy = tilesWithPositions[i].centerY - tilesWithPositions[j].centerY;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-                    if (distance > maxDistance) {
-                        maxDistance = distance;
-                        tile1 = tilesWithPositions[i].tile;
-                        tile2 = tilesWithPositions[j].tile;
-                    }
-                }
-            }
-            
-            // If we couldn't find two distinct tiles, pick first two
-            if (!tile1 || !tile2) {
-                tile1 = tilesWithOpenEdit[0];
-                tile2 = tilesWithOpenEdit[1];
-            }
-            
-            const tilesToStretch = [tile1, tile2];
-            
-            // Define allowed stretch sizes: 2x2, 2x3, 3x2
-            const allowedSizes = [
-                { w: 2, h: 2 }, // 2x2
-                { w: 2, h: 3 }, // 2x3
-                { w: 3, h: 2 }  // 3x2
-            ];
-            
-            // Helper function to get grid position from pixel coordinates
-            function getGridPosition(left, top) {
-                const col = Math.round(left / (actualWidth + actualMargin));
-                const row = Math.round(top / (actualHeight + actualMargin));
-                return { col: Math.max(0, col), row: Math.max(0, row) };
-            }
-            
-            // Stretch the two selected tiles
-            tilesToStretch.forEach(function (tile) {
+            // Pick any 2 random tiles (if at least 2 exist)
+            const randomTiles = tilesWithOpenEdit.slice(0, 2);
+            randomTiles.forEach(function (tile) {
                 let $tile = $(tile);
                 let $img = $tile.find(".open-edit-pop");
                 if ($img.length > 0) {
-                    // Pick a random size from allowed sizes
-                    const randomSize = allowedSizes[Math.floor(Math.random() * allowedSizes.length)];
-                    const newW = randomSize.w;
-                    const newH = randomSize.h;
-                    
-                    // Calculate margin
+                    $("#tile-width,#tile-height").html('');
+                    let grid_columns = parseInt(document.getElementById("grid_columns").value);
+                    let grid_rows = parseInt(document.getElementById("grid_rows").value);
+                    let selectedLeft = parseInt($tile.css("left")) / (actualWidth + actualMargin);
+                    let selectedTop = parseInt($tile.css("top")) / (actualHeight + actualMargin);
+                    let selectedForSizeWidth = parseInt($tile.css("width"));
+                    let selectedForSizeHeight = parseInt($tile.css("height"));
+                    let startCol = Math.round(selectedLeft);
+                    let startRow = Math.round(selectedTop);
+                    let maxWidthFactor = grid_columns - startCol;
+                    let maxHeightFactor = grid_rows - startRow;
+                    let widthOptions = [];
+                    for (let i = 1; i <= maxWidthFactor; i++) {
+                        // let widthOption = (actualWidth * i) + ((i - 1) * actualMargin);
+                        widthOptions.push((actualWidth * i));
+                        // $("#tile-width").append(`<option value="${actualWidth * i}" ${selectedForSizeWidth === widthOption ? "selected" : ""}>${visibleWidth * i} cm</option>`);
+                    }
+                    let heightOptions = [];
+                    for (let i = 1; i <= maxHeightFactor; i++) {
+                        // let heightOption = (actualHeight * i) + ((i - 1) * actualMargin);
+                        heightOptions.push((actualHeight * i));
+                        // $("#tile-height").append(`<option value="${actualHeight * i}" ${selectedForSizeHeight === heightOption ? "selected" : ""}>${visibleHeight * i} cm</option>`);
+                    }
+                    // Get possible widths and heights from the dropdowns
+                    // let widthOptions = $("#tile-width option").map(function () { return parseInt($(this).val()); }).get();
+                    // let heightOptions = $("#tile-height option").map(function () { return parseInt($(this).val()); }).get();
+                    // Pick a random width/height, but not the smallest (to ensure enlargement)
+                    // let randomW = widthOptions.length > 1 ? widthOptions[Math.floor(Math.random() * (widthOptions.length - 1)) +  1] : widthOptions[0];
+                    // let randomH = heightOptions.length > 1 ? heightOptions[Math.floor(Math.random() * (heightOptions.length - 1)) + 1] : heightOptions[0];
+                    // let currentWIndex = widthOptions.indexOf(selectedForSizeWidth);
+                    let currentWIndexx = widthOptions.filter(function (value, i) {
+                        return value === (actualWidth * i) + ((i - 1) * actualMargin);
+                    });
+                    // let currentHIndex = heightOptions.indexOf(selectedForSizeHeight);
+                    let currentHIndexx = heightOptions.filter(function (value, i) {
+                        return value === (actualHeight * i) + ((i - 1) * actualMargin);
+                    });
+                    let randomW = widthOptions[Math.min(currentWIndexx + 1, widthOptions.length - 1)];
+                    let randomH = heightOptions[Math.min(currentHIndexx + 1, heightOptions.length - 1)];
+                    // Set new size and margin
+                    let newW = randomW / actualWidth;
+                    let newH = randomH / actualHeight;
                     let marginW = (newW - 1) * actualMargin;
                     let marginH = (newH - 1) * actualMargin;
-                    
-                    // Set new size
                     $tile.css({
                         width: (actualWidth * newW) + marginW + "px",
                         height: (actualHeight * newH) + marginH + "px"
                     });
                     $tile.attr("data-margin", marginW + "|" + marginH);
-                    
-                    // Check what frame class is currently applied (before any changes)
-                    const hasBlackFrame = $tile[0].classList.contains('success-black-outlined');
-                    const hasWhiteFrame = $tile[0].classList.contains('success-white-outlined');
-                    
                     $tile.find("svg").remove();
-                    
-                    // Apply clip-path for stretched images
-                    const { svg, clipPathId } = createTileClipPath(
-                        (actualWidth * newW) + marginW,
-                        (actualHeight * newH) + marginH,
-                        newH,
-                        newW
-                    );
-                    $tile.append(svg);
-                    $tile[0].style.clipPath = `url(#${clipPathId})`;
-                    $tile[0].dataset.clipPathId = clipPathId;
-                    
-                    // Ensure frame class remains applied
-                    if (hasBlackFrame) {
-                        $tile[0].classList.add('success-black-outlined');
-                    }
-                    if (hasWhiteFrame) {
-                        $tile[0].classList.add('success-white-outlined');
+                    if (newW !== 1 || newH !== 1) {
+                        // Apply clip-path for dynamic layout stretched images
+                        const { svg, clipPathId } = createTileClipPath(
+                            (actualWidth * newW) + marginW,
+                            (actualHeight * newH) + marginH,
+                            newH,
+                            newW
+                        );
+                        $tile.append(svg);
+                        $tile.style.clipPath = `url(#${clipPathId})`;
+                        $tile.dataset.clipPathId = clipPathId;
+                    } else {
+                        // Single tile - remove clip-path
+                        $tile.style.clipPath = 'none';
+                        delete $tile.dataset.clipPathId;
                     }
                 }
             });
-            
-            console.log('dynamic-grid loop finished - stretched 2 images at opposite edges');
-            
-            // Reorganize tiles to be compact (no gaps) and handle overlaps
+            console.log('dynamic-grid loop finished');
             setTimeout(async () => {
-                try {
-                    await calcGridDimension();
-                    placeTiles(); // This will reorganize everything compactly and handle overlaps
-                    
-                    // Check if we need more grid space by finding the maximum used row/column
-                    let columns = parseInt(document.getElementById("grid_columns").value);
-                    let rows = parseInt(document.getElementById("grid_rows").value);
-                    let maxCol = 0;
-                    let maxRow = 0;
-                    
-                    // Find the maximum column and row used by any tile
-                    document.querySelectorAll(".image-div").forEach(tile => {
-                        if (!isTileEmpty(tile)) {
-                            const left = parseInt(tile.style.left) || 0;
-                            const top = parseInt(tile.style.top) || 0;
-                            const width = parseInt(window.getComputedStyle(tile).width);
-                            const height = parseInt(window.getComputedStyle(tile).height);
-                            const gridW = Math.round(width / actualWidth);
-                            const gridH = Math.round(height / actualHeight);
-                            const pos = getGridPosition(left, top);
-                            maxCol = Math.max(maxCol, pos.col + gridW);
-                            maxRow = Math.max(maxRow, pos.row + gridH);
-                        }
-                    });
-                    
-                    // Add rows/columns if needed (but not more than needed)
-                    let rowsNeeded = Math.max(0, maxRow - rows);
-                    let colsNeeded = Math.max(0, maxCol - columns);
-                    
-                    if (rowsNeeded > 0) {
-                        for (let i = 0; i < rowsNeeded; i++) {
-                            grid_rows += 1;
-                            $("#grid_rows").val(grid_rows);
-                            let row_html = '';
-                            for (let j = 0; j < columns; j++) {
-                                row_html += image_div_html;
-                            }
-                            $("#preview-grid").append(row_html);
-                        }
-                    }
-                    
-                    if (colsNeeded > 0) {
-                        for (let i = 0; i < colsNeeded; i++) {
-                            grid_columns += 1;
-                            $("#grid_columns").val(grid_columns);
-                            // Add a column cell to each row
-                            let currentCols = grid_columns - 1;
-                            let cellsAdded = 0;
-                            $("#preview-grid .image-div").each(function (index) {
-                                if ((index + 1) % currentCols === 0) {
-                                    $(this).after(image_div_html);
-                                    cellsAdded++;
-                                }
-                            });
-                            // Add cells to complete the last row if needed
-                            let totalCells = $("#preview-grid .image-div").length;
-                            let cellsInLastRow = totalCells % grid_columns;
-                            if (cellsInLastRow > 0) {
-                                for (let j = cellsInLastRow; j < grid_columns; j++) {
-                                    $("#preview-grid").append(image_div_html);
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Recalculate and place tiles again after adding space (if needed)
-                    if (rowsNeeded > 0 || colsNeeded > 0) {
-                        await calcGridDimension();
-                        placeTiles(); // Reorganize again with new grid size to ensure compact layout
-                    }
-                } catch (error) {
-                    console.error('Error in dynamic grid layout:', error);
-                } finally {
-                    // Always hide the loader, even if there was an error
-                    $('#dynamic-grid').closest('.form-check').find('.loader').addClass('d-none');
-                }
+                await calcGridDimension();
+                placeTiles();
+                $('#dynamic-grid').parent().find('.loader').addClass('d-none');
             }, 500);
         }
         currentLayout = layoutId;

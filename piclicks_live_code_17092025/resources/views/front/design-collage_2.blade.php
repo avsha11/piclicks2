@@ -184,7 +184,7 @@
                 <div class="d-flex gap-2 gap-md-3">
                     <div class="finish_btn ps-2">
                         <div>
-                            <a href="javascript:;" style="color: #fff;" onclick="return refreshPage();">
+                            <a href="javascript:;" style="color: #fff;" class="undobtn" id="undo-btn-2">
                                 <i class="fa-solid fa-rotate-left"></i>
                                 <p>Undo</p>
                             </a>
@@ -602,6 +602,19 @@
                 }
             });
         }
+        
+        // Initialize undo button event listener
+        document.addEventListener('DOMContentLoaded', function() {
+            const undoBtn = document.querySelector('.undobtn');
+            if (undoBtn) {
+                undoBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    if (typeof performUndo === 'function') {
+                        performUndo();
+                    }
+                });
+            }
+        });
     </script>
 
 

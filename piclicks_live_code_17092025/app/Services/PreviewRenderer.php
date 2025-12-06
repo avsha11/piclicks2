@@ -14,10 +14,14 @@ class PreviewRenderer
     private const FRAME_THICKNESS = 7; // editor frame border width in px
     private const CONTAINER_PADDING = 10; // .tool-inner padding in px
     private const SCALE = 2;         // upscale factor for better quality
-    private const TEXT_SIZE_ADJUST = 0.70; // fine-tuned GD vs CSS size (reduced for better match)
+    private const TEXT_SIZE_ADJUST = 0.795675; // fine-tuned GD vs CSS size (0.7725 × 1.03 = 3% enlargement)
     // Text overlay element has padding that affects getBoundingClientRect()
     private const TEXT_OVERLAY_PADDING_X = 10; // horizontal padding (left + right) in px
     private const TEXT_OVERLAY_PADDING_Y = 5;  // vertical padding (top + bottom) in px
+    // Position correction to align text layer between editor and preview
+    // Adjusted: Move text layer MORE to the RIGHT (twice as last time: 4px shift)
+    private const TEXT_POSITION_OFFSET_X = 2; // horizontal correction in editor px (positive = shift right)
+    private const TEXT_POSITION_OFFSET_Y = -40; // vertical correction in editor px (negative = shift up, less negative = shift down)
 
     private const FRAME_CLASSES = [
         'success-black-outlined' => '#000000',
@@ -225,18 +229,16 @@ class PreviewRenderer
         if (!empty($master['frame']) && isset(self::FRAME_CLASSES[$master['frame']])) {
             $frameColorHex = self::FRAME_CLASSES[$master['frame']];
         }
+        
+        // Calculate frame thickness for image positioning (14px when frame exists, 0 when no frame)
+        $frameThicknessPx = $frameColorHex ? intval(self::FRAME_THICKNESS * self::SCALE) : 0;
 
-        $contentWidth = $cols * $tileWidth;
-        $contentHeight = $rows * $tileHeight;
-        
-        // When frame exists, image should be contained within frame's inner boundary
-        // Frame thickness is 7px at editor scale, 14px at preview scale (7 * 2)
-        $frameThicknessPx = 0;
-        if ($frameColorHex) {
-            $frameThicknessPx = intval(self::FRAME_THICKNESS * self::SCALE); // 7 * 2 = 14px
-        }
-        
-        // Target area for image scaling: frame's inner boundary if frame exists, otherwise full content area
+        // Content dimensions MUST account for gaps between tiles in stretched images
+        // This ensures block canvas size matches the frame dimensions
+        $contentWidth = $cols * $tileWidth + ($cols - 1) * $gap;
+        $contentHeight = $rows * $tileHeight + ($rows - 1) * $gap;
+
+        // Target area for image scaling: frame's inner boundary if frame exists
         $targetWidth = $frameThicknessPx > 0 ? max(1, $contentWidth - ($frameThicknessPx * 2)) : $contentWidth;
         $targetHeight = $frameThicknessPx > 0 ? max(1, $contentHeight - ($frameThicknessPx * 2)) : $contentHeight;
 
@@ -354,11 +356,20 @@ class PreviewRenderer
             $this->applyFilter($scaledImage, $filter);
         }
 
-        // Frame color per master frame class
-        $frameColorHex = null;
-        if (!empty($master['frame']) && isset(self::FRAME_CLASSES[$master['frame']])) {
-            $frameColorHex = self::FRAME_CLASSES[$master['frame']];
-        }
+        // Create a block canvas for the entire block (like PrintFileService does)
+        $blockCanvas = imagecreatetruecolor($contentWidth, $contentHeight);
+        imagealphablending($blockCanvas, false);
+        imagesavealpha($blockCanvas, true);
+        $blockTrans = imagecolorallocatealpha($blockCanvas, 0, 0, 0, 127);
+        imagefill($blockCanvas, 0, 0, $blockTrans);
+        imagealphablending($blockCanvas, true);
+
+        // Render scaled image to block canvas at frame inset position
+        // The scaledImage is already at the correct size, so just copy it
+        $dstX = $frameThicknessPx; // 14px when frame exists, 0 when no frame
+        $dstY = $frameThicknessPx;
+        imagecopy($blockCanvas, $scaledImage, $dstX, $dstY, 0, 0, $scaledW, $scaledH);
+        imagedestroy($scaledImage); // Destroy scaled image after copying to block canvas
 
         // For each tile inside block, copy the respective portion
         for ($r = 0; $r < $rows; $r++) {
@@ -375,28 +386,10 @@ class PreviewRenderer
                 imagefill($tileCanvas, 0, 0, $tileTrans);
                 imagealphablending($tileCanvas, true);
 
-                // Calculate source position in scaled image for this tile
-                // The scaled image is sized to targetWidth x targetHeight (inside frame if frame exists)
-                // Each tile's portion in the scaled image is proportional
-                $tileTargetWidth = $targetWidth / $cols;
-                $tileTargetHeight = $targetHeight / $rows;
-                
-                // Source position in scaled image (proportional to tile position in block)
-                // This maintains continuity across tiles
-                $srcX = intval(($scaledW / $targetWidth) * ($tileTargetWidth * $c));
-                $srcY = intval(($scaledH / $targetHeight) * ($tileTargetHeight * $r));
-                
-                // Amount to copy from scaled image for this tile
-                $copyWidth = intval(($scaledW / $targetWidth) * $tileTargetWidth);
-                $copyHeight = intval(($scaledH / $targetHeight) * $tileTargetHeight);
-                
-                // Destination position on tile canvas
-                // If frame exists, center the image portion within the tile (accounting for frame thickness)
-                // If no frame, position at top-left
-                $dstX = $frameThicknessPx;
-                $dstY = $frameThicknessPx;
-
-                imagecopy($tileCanvas, $scaledImage, $dstX, $dstY, $srcX, $srcY, $copyWidth, $copyHeight);
+                // Extract tiles from block canvas - account for gaps between tiles
+                $srcX = $c * ($tileWidth + $gap);
+                $srcY = $r * ($tileHeight + $gap);
+                imagecopy($tileCanvas, $blockCanvas, 0, 0, $srcX, $srcY, $tileWidth, $tileHeight);
 
                 // Apply rounded corners
                 $this->applyRoundedCorners($tileCanvas, intval(self::CORNER_RADIUS * self::SCALE));
@@ -417,6 +410,8 @@ class PreviewRenderer
             }
         }
 
+        imagedestroy($blockCanvas); // Destroy block canvas after extracting all tiles
+
         // Draw one frame per stretched image block (or single tile)
         if ($frameColorHex) {
             $frameColor = $this->allocateHex($canvas, $frameColorHex);
@@ -427,8 +422,6 @@ class PreviewRenderer
             $blockH = $rows * $tileHeight + ($rows - 1) * $gap;
             $this->drawFrame($canvas, $blockX, $blockY, $blockW, $blockH, intval(self::CORNER_RADIUS * self::SCALE), $frameThickness, $frameColor);
         }
-
-        imagedestroy($scaledImage);
     }
 
     private function drawFrame($canvas, int $x, int $y, int $w, int $h, int $radius, int $thickness, int $color): void
@@ -657,6 +650,11 @@ class PreviewRenderer
             $gridX = $editorX - self::CONTAINER_PADDING;
             $gridY = $editorY - self::CONTAINER_PADDING;
             
+            // Apply position correction (in editor units, will be scaled later)
+            // Adjusted: Move text layer MORE to the RIGHT (+2px, twice the last 2px shift)
+            $gridX += self::TEXT_POSITION_OFFSET_X;
+            $gridY += self::TEXT_POSITION_OFFSET_Y;
+            
             // Convert from grid pixel coordinates to canvas coordinates (before scaling)
             // minCol/minRow represent the leftmost/topmost occupied tiles
             // Each tile is (TILE_WIDTH + TILE_GAP) wide and (TILE_HEIGHT + TILE_GAP) tall
@@ -697,44 +695,39 @@ class PreviewRenderer
             [$textWidth, $textHeight, $minX, $maxX, $minY, $maxY] = $this->calculateTextBoundingBox($fontSize, $rotation, $fontPath, $text);
 
             // ROOT CAUSE ANALYSIS:
-            // The browser stores (left, top) as the element's CSS position
+            // The browser stores (left, top) as the element's position
             // With transform: translate(-50%, -50%), the browser:
-            // 1. Calculates getBoundingClientRect() which returns the axis-aligned bounding box
-            //    of the element AFTER all transforms, including:
-            //    - The text's actual rendered bounding box
-            //    - Element padding (5px top/bottom, 10px left/right) 
-            //    - The rotation transform
-            // 2. The translate(-50%, -50%) shifts the element by -50% of its bounding box width/height
-            // 3. The VISUAL CENTER of the element (including padding) ends up at (left, top)
+            // 1. Calculates getBoundingClientRect() which includes:
+            //    - The text's bounding box (from actual rendering)
+            //    - Element padding (5px top/bottom, 10px left/right)
+            //    - Any other CSS properties affecting size
+            // 2. Applies translate(-50% of width, -50% of height)
+            // 3. The VISUAL CENTER ends up at (left, top)
             //
-            // CRITICAL INSIGHT: Since padding is symmetric (5px top/bottom, 10px left/right),
-            // the center of the element (text + padding) is the SAME as the center of just the text.
-            // So the stored (x, y) IS the visual center of the text itself.
+            // imagettfbbox() only gives us the font's theoretical bounding box
+            // It doesn't include padding or browser-specific rendering differences
             //
-            // imagettfbbox() gives us the font's bounding box for rotated text
-            // It should match the browser's text bounding box (without padding)
-            // The difference might be due to:
+            // Since padding is symmetric, it doesn't shift the center, but the browser's
+            // bounding box calculation might differ from imagettfbbox() due to:
             // - Font rendering differences (hinting, subpixel rendering)
-            // - Browser text metrics vs GD font metrics  
+            // - Browser text metrics vs GD font metrics
             // - Rotated text bounding box calculation differences
             //
-            // The stored (x, y) IS the visual center of the text (after translate(-50%, -50%))
-            // We position our text so its bounding box center matches this exactly
+            // The stored (x, y) IS the visual center (after translate(-50%, -50%))
+            // We need to position our text so its center matches this exactly
             
-            // Target center position (stored position = visual center of text)
+            // Target center position (stored position = visual center)
             $targetCenterX = $canvasCenterX;
             $targetCenterY = $canvasCenterY;
 
             // Calculate the text's bounding box center from imagettfbbox
-            // This is the geometric center of the font's bounding box (rotated)
+            // This is the geometric center of the font's bounding box
             $bboxCenterX = ($minX + $maxX) / 2;
             $bboxCenterY = ($minY + $maxY) / 2;
             
             // Position the text's bounding box center at the target center
-            // This matches what the browser does: center of text bbox = stored (x, y)
+            // This matches what the browser does with translate(-50%, -50%)
             // imagettftext expects baseline position, so we convert:
-            // baselineX = targetCenterX - bboxCenterX
-            // baselineY = targetCenterY - bboxCenterY
             $drawX = $targetCenterX - $bboxCenterX;
             $drawY = $targetCenterY - $bboxCenterY;
             
