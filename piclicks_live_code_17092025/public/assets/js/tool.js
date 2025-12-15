@@ -2454,11 +2454,171 @@ async function saveCollage(type) {
 
     formData.append("tiles", JSON.stringify(tiles));
 
-    // html2canvas removed - PreviewRenderer now generates images server-side on-demand
-    // No need to capture DOM or send collage_image - PreviewRenderer handles image generation
-    // when the Preview page is visited, and all other places use that cached image
+    // Capture text layer as unified PNG for preview (only for preview/admin saves)
+    // This preserves exact relative positions and gaps between text elements
+    if ($(".text-overlay").length > 0 && (type === 'preview' || type === 'manual_admin') && typeof html2canvas !== 'undefined') {
+        try {
+            // Capture only the #preview-grid (not the entire .middle container)
+            // This ensures the image matches grid dimensions exactly
+            if ($grid.length > 0) {
+                // Ensure all text overlays are visible
+                $(".text-overlay").each(function() {
+                    $(this).css({
+                        display: 'block',
+                        visibility: 'visible',
+                        opacity: '1'
+                    });
+                });
+                
+                // Create a minimal wrapper that contains only text overlays
+                const $gridWrapper = $('<div>').css({
+                    position: 'relative',
+                    width: $grid.width() + 'px',
+                    height: $grid.height() + 'px',
+                    overflow: 'hidden',
+                    backgroundColor: 'transparent'
+                });
+                
+                // Get grid position for coordinate conversion
+                const gridRect = $grid[0].getBoundingClientRect();
+                
+                // Clone text overlays and reposition relative to grid
+                $(".text-overlay").each(function() {
+                    const $original = $(this);
+                    const $clone = $original.clone();
+                    
+                    // Get position relative to grid
+                    const overlayRect = $original[0].getBoundingClientRect();
+                    const relativeLeft = overlayRect.left - gridRect.left;
+                    const relativeTop = overlayRect.top - gridRect.top;
+                    
+                    // Get computed styles to preserve exact appearance
+                    const computedStyle = window.getComputedStyle($original[0]);
+                    
+                    // Set position and styles in wrapper (relative to grid)
+                    $clone.css({
+                        position: 'absolute',
+                        left: relativeLeft + 'px',
+                        top: relativeTop + 'px',
+                        transform: computedStyle.transform || 'none',
+                        fontFamily: computedStyle.fontFamily,
+                        fontSize: computedStyle.fontSize,
+                        fontWeight: computedStyle.fontWeight,
+                        fontStyle: computedStyle.fontStyle,
+                        color: computedStyle.color,
+                        backgroundColor: 'transparent',
+                        whiteSpace: computedStyle.whiteSpace || 'pre-wrap',
+                        textAlign: computedStyle.textAlign || 'left',
+                        lineHeight: computedStyle.lineHeight,
+                        display: 'block',
+                        visibility: 'visible',
+                        opacity: '1',
+                        margin: '0',
+                        padding: computedStyle.padding,
+                        border: 'none',
+                        outline: 'none',
+                        boxShadow: 'none',
+                        textShadow: computedStyle.textShadow || 'none'
+                    });
+                    
+                    // Remove interactive elements
+                    $clone.find('.rotate-handle, .text-remove, .text-edit').remove();
+                    
+                    // Keep only the text content
+                    const $textContent = $clone.find('.text-content');
+                    if ($textContent.length) {
+                        const textHtml = $textContent.html();
+                        if (textHtml && textHtml.trim().length > 0) {
+                            $clone.html(textHtml);
+                        } else {
+                            const textText = $textContent.text() || $original.text();
+                            if (textText && textText.trim().length > 0) {
+                                $clone.html(textText);
+                            } else {
+                                return;
+                            }
+                        }
+                    } else {
+                        const directText = $clone.text() || $original.text();
+                        if (directText && directText.trim().length > 0) {
+                            $clone.html(directText);
+                        } else {
+                            return;
+                        }
+                    }
+                    
+                    if ($clone.html().trim().length === 0) {
+                        return;
+                    }
+                    
+                    $gridWrapper.append($clone);
+                });
+                
+                // Temporarily add to DOM for html2canvas (off-screen)
+                $gridWrapper.css({ 
+                    position: 'fixed', 
+                    left: '-9999px', 
+                    top: '0',
+                    zIndex: -9999 
+                });
+                $('body').append($gridWrapper);
+                
+                // Capture the grid wrapper at higher scale for better quality
+                const textLayerCanvas = await html2canvas($gridWrapper[0], {
+                    backgroundColor: null, // Transparent background
+                    useCORS: false, // Don't try to load external resources
+                    allowTaint: true,
+                    scale: 2, // Higher scale for better quality (2x = double resolution)
+                    logging: false,
+                    ignoreElements: function(element) {
+                        return element.tagName === 'LINK' || 
+                               element.tagName === 'STYLE' ||
+                               (element.tagName === 'IMG' && element.src && !element.src.startsWith('data:'));
+                    }
+                });
+                
+                // Remove temporary wrapper
+                $gridWrapper.remove();
+                
+                // Verify canvas has content
+                const ctx = textLayerCanvas.getContext('2d');
+                const imageData = ctx.getImageData(0, 0, Math.min(100, textLayerCanvas.width), Math.min(100, textLayerCanvas.height));
+                const hasContent = imageData.data.some((pixel, index) => {
+                    return index % 4 === 3 && pixel < 255;
+                });
+                
+                if (hasContent) {
+                    const textLayerDataUrl = textLayerCanvas.toDataURL('image/png');
+                    
+                    if (textLayerDataUrl && textLayerDataUrl.length > 100) {
+                        try {
+                            const textLayerFile = dataURLToFile(textLayerDataUrl, $("#unique_id").val() + '_text_layer.png');
+                            
+                            if (textLayerFile && textLayerFile.size > 0) {
+                                formData.append('text_layer', textLayerFile);
+                                console.log('Text layer file created successfully', {
+                                    'file_size': textLayerFile.size,
+                                    'file_name': textLayerFile.name
+                                });
+                            } else {
+                                formData.append('text_layer_image', textLayerDataUrl);
+                                console.log('Sent text layer as base64 fallback due to empty file');
+                            }
+                        } catch (fileError) {
+                            console.error('Error converting text layer to file:', fileError);
+                            formData.append('text_layer_image', textLayerDataUrl);
+                            console.log('Sent text layer as base64 fallback due to conversion error');
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error capturing text layer:', error);
+            // Continue without text layer if capture fails
+        }
+    }
 
-    // Submit form data without html2canvas image
+    // Submit form data
     $.ajax({
         url: saveCollageUrl,
         method: 'POST',

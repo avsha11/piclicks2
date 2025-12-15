@@ -14,14 +14,10 @@ class PreviewRenderer
     private const FRAME_THICKNESS = 7; // editor frame border width in px
     private const CONTAINER_PADDING = 10; // .tool-inner padding in px
     private const SCALE = 2;         // upscale factor for better quality
-    private const TEXT_SIZE_ADJUST = 0.795675; // fine-tuned GD vs CSS size (0.7725 × 1.03 = 3% enlargement)
+    private const TEXT_SIZE_ADJUST = 0.70; // fine-tuned GD vs CSS size (reduced for better match)
     // Text overlay element has padding that affects getBoundingClientRect()
     private const TEXT_OVERLAY_PADDING_X = 10; // horizontal padding (left + right) in px
     private const TEXT_OVERLAY_PADDING_Y = 5;  // vertical padding (top + bottom) in px
-    // Position correction to align text layer between editor and preview
-    // Adjusted: Move text layer MORE to the RIGHT (twice as last time: 4px shift)
-    private const TEXT_POSITION_OFFSET_X = 2; // horizontal correction in editor px (positive = shift right)
-    private const TEXT_POSITION_OFFSET_Y = -40; // vertical correction in editor px (negative = shift up, less negative = shift down)
 
     private const FRAME_CLASSES = [
         'success-black-outlined' => '#000000',
@@ -90,7 +86,7 @@ class PreviewRenderer
         $this->applyMaskToCanvas($canvas, $maskCanvas, $canvasWidth, $canvasHeight, $transparent);
 
         // Draw text overlays on top
-        $this->renderTextOverlays($canvas, $maskCanvas, $canvasWidth, $canvasHeight, $master, $minCol, $minRow, $tileWidthPx, $tileHeightPx, $gapPx);
+        $this->renderTextOverlays($canvas, $maskCanvas, $canvasWidth, $canvasHeight, $master, $minCol, $minRow, $maxCol, $maxRow, $tileWidthPx, $tileHeightPx, $gapPx);
 
         // Use consistent filename (without timestamp) so we can reuse the same preview image
         // This ensures admin/cart thumbnails use the exact same image as the Preview page
@@ -229,18 +225,9 @@ class PreviewRenderer
         if (!empty($master['frame']) && isset(self::FRAME_CLASSES[$master['frame']])) {
             $frameColorHex = self::FRAME_CLASSES[$master['frame']];
         }
-        
-        // Calculate frame thickness for image positioning (14px when frame exists, 0 when no frame)
-        $frameThicknessPx = $frameColorHex ? intval(self::FRAME_THICKNESS * self::SCALE) : 0;
 
-        // Content dimensions MUST account for gaps between tiles in stretched images
-        // This ensures block canvas size matches the frame dimensions
-        $contentWidth = $cols * $tileWidth + ($cols - 1) * $gap;
-        $contentHeight = $rows * $tileHeight + ($rows - 1) * $gap;
-
-        // Target area for image scaling: frame's inner boundary if frame exists
-        $targetWidth = $frameThicknessPx > 0 ? max(1, $contentWidth - ($frameThicknessPx * 2)) : $contentWidth;
-        $targetHeight = $frameThicknessPx > 0 ? max(1, $contentHeight - ($frameThicknessPx * 2)) : $contentHeight;
+        $contentWidth = $cols * $tileWidth;
+        $contentHeight = $rows * $tileHeight;
 
         // Parse zoom correctly: format is "currentZoom|minZoom"
         // Editor calculates: scaleMin = max(viewportWidth/imgWidth, viewportHeight/imgHeight) = minZoom
@@ -322,10 +309,10 @@ class PreviewRenderer
             $editorScaledW = $srcW * $editorFinalScale;
             $editorScaledH = $srcH * $editorFinalScale;
             
-            // Now scale from editor's viewport to preview's target area (inside frame if frame exists)
+            // Now scale from editor's viewport to preview's target area
             // This maintains the same relative crop/position
-            $scaleToTargetX = $targetWidth / $viewportW;
-            $scaleToTargetY = $targetHeight / $viewportH;
+            $scaleToTargetX = $contentWidth / $viewportW;
+            $scaleToTargetY = $contentHeight / $viewportH;
             
             // Use max() to match CSS object-fit: cover behavior (ensures image covers container)
             $scaleToTarget = max($scaleToTargetX, $scaleToTargetY);
@@ -334,8 +321,8 @@ class PreviewRenderer
             $scaledW = max(1, (int) round($editorScaledW * $scaleToTarget));
             $scaledH = max(1, (int) round($editorScaledH * $scaleToTarget));
         } else {
-            // Fallback: standard cover fit calculation for target area (inside frame if frame exists)
-            $scaleFactor = max($targetWidth / $srcW, $targetHeight / $srcH);
+            // Fallback: standard cover fit calculation
+            $scaleFactor = max($contentWidth / $srcW, $contentHeight / $srcH);
             $scaledW = intval($srcW * $scaleFactor);
             $scaledH = intval($srcH * $scaleFactor);
         }
@@ -356,20 +343,11 @@ class PreviewRenderer
             $this->applyFilter($scaledImage, $filter);
         }
 
-        // Create a block canvas for the entire block (like PrintFileService does)
-        $blockCanvas = imagecreatetruecolor($contentWidth, $contentHeight);
-        imagealphablending($blockCanvas, false);
-        imagesavealpha($blockCanvas, true);
-        $blockTrans = imagecolorallocatealpha($blockCanvas, 0, 0, 0, 127);
-        imagefill($blockCanvas, 0, 0, $blockTrans);
-        imagealphablending($blockCanvas, true);
-
-        // Render scaled image to block canvas at frame inset position
-        // The scaledImage is already at the correct size, so just copy it
-        $dstX = $frameThicknessPx; // 14px when frame exists, 0 when no frame
-        $dstY = $frameThicknessPx;
-        imagecopy($blockCanvas, $scaledImage, $dstX, $dstY, 0, 0, $scaledW, $scaledH);
-        imagedestroy($scaledImage); // Destroy scaled image after copying to block canvas
+        // Frame color per master frame class
+        $frameColorHex = null;
+        if (!empty($master['frame']) && isset(self::FRAME_CLASSES[$master['frame']])) {
+            $frameColorHex = self::FRAME_CLASSES[$master['frame']];
+        }
 
         // For each tile inside block, copy the respective portion
         for ($r = 0; $r < $rows; $r++) {
@@ -386,10 +364,13 @@ class PreviewRenderer
                 imagefill($tileCanvas, 0, 0, $tileTrans);
                 imagealphablending($tileCanvas, true);
 
-                // Extract tiles from block canvas - account for gaps between tiles
-                $srcX = $c * ($tileWidth + $gap);
-                $srcY = $r * ($tileHeight + $gap);
-                imagecopy($tileCanvas, $blockCanvas, 0, 0, $srcX, $srcY, $tileWidth, $tileHeight);
+                // Position at top-left (matching editor's object-position: top left)
+                // The scaled image is larger than content area, so we start from (0, 0) and crop
+                // Calculate source position in scaled image for this tile
+                $srcX = intval($tileWidth * $c);
+                $srcY = intval($tileHeight * $r);
+
+                imagecopy($tileCanvas, $scaledImage, 0, 0, $srcX, $srcY, $tileWidth, $tileHeight);
 
                 // Apply rounded corners
                 $this->applyRoundedCorners($tileCanvas, intval(self::CORNER_RADIUS * self::SCALE));
@@ -410,8 +391,6 @@ class PreviewRenderer
             }
         }
 
-        imagedestroy($blockCanvas); // Destroy block canvas after extracting all tiles
-
         // Draw one frame per stretched image block (or single tile)
         if ($frameColorHex) {
             $frameColor = $this->allocateHex($canvas, $frameColorHex);
@@ -422,6 +401,8 @@ class PreviewRenderer
             $blockH = $rows * $tileHeight + ($rows - 1) * $gap;
             $this->drawFrame($canvas, $blockX, $blockY, $blockW, $blockH, intval(self::CORNER_RADIUS * self::SCALE), $frameThickness, $frameColor);
         }
+
+        imagedestroy($scaledImage);
     }
 
     private function drawFrame($canvas, int $x, int $y, int $w, int $h, int $radius, int $thickness, int $color): void
@@ -575,8 +556,204 @@ class PreviewRenderer
         }
     }
 
-    private function renderTextOverlays($canvas, $maskCanvas, int $canvasWidth, int $canvasHeight, array $master, int $minCol, int $minRow, int $tileWidth, int $tileHeight, int $gap): void
+    private function renderTextOverlays($canvas, $maskCanvas, int $canvasWidth, int $canvasHeight, array $master, int $minCol, int $minRow, int $maxCol, int $maxRow, int $tileWidth, int $tileHeight, int $gap): void
     {
+        // Check if text layer image was captured from editor (preferred method for perfect matching)
+        $textLayerPath = $master['text_layer_path'] ?? null;
+        $textLayerImage = null;
+        
+        if (!empty($textLayerPath)) {
+            // Load from saved file
+            $fullPath = public_path($textLayerPath);
+            if (file_exists($fullPath)) {
+                $textLayerImage = @imagecreatefrompng($fullPath);
+                if ($textLayerImage === false) {
+                    Log::warning('PreviewRenderer: Failed to load text layer from file', ['path' => $fullPath]);
+                }
+            }
+        }
+        
+        // Fallback to base64 in JSON (backward compatibility)
+        if ($textLayerImage === false || $textLayerImage === null) {
+            $textEditorData = json_decode($master['text_editor'] ?? '{}', true);
+            $textLayerImageBase64 = $textEditorData['_text_layer_image'] ?? null;
+            
+            if (!empty($textLayerImageBase64)) {
+                try {
+                    // Remove data URL prefix if present
+                    $base64Data = preg_replace('/^data:image\/\w+;base64,/', '', $textLayerImageBase64);
+                    $imageData = base64_decode($base64Data);
+                    
+                    if ($imageData !== false) {
+                        $textLayerImage = @imagecreatefromstring($imageData);
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('PreviewRenderer: Failed to decode base64 text layer', ['error' => $e->getMessage()]);
+                }
+            }
+        }
+        
+        if ($textLayerImage !== false && $textLayerImage !== null) {
+            // Use saved text layer image from editor (perfect match)
+            try {
+                // Get dimensions of captured image
+                $sourceWidth = imagesx($textLayerImage);
+                $sourceHeight = imagesy($textLayerImage);
+                
+                // Image is captured directly from #preview-grid
+                // Grid size calculation: TILE_GAP + ((TILE_WIDTH + TILE_GAP) * columns)
+                $gridCols = intval($master['grid_columns'] ?? 5);
+                $gridRows = intval($master['grid_rows'] ?? 5);
+                
+                $expectedGridWidth = self::TILE_GAP + (self::TILE_WIDTH + self::TILE_GAP) * $gridCols;
+                $expectedGridHeight = self::TILE_GAP + (self::TILE_HEIGHT + self::TILE_GAP) * $gridRows;
+                
+                // Detect capture scale by comparing actual vs expected dimensions
+                $widthScale = $sourceWidth / $expectedGridWidth;
+                $heightScale = $sourceHeight / $expectedGridHeight;
+                $captureScale = abs($widthScale - $heightScale) < 0.01 ? $widthScale : (($widthScale + $heightScale) / 2);
+                
+                Log::info('PreviewRenderer: Text layer scale detection (grid capture)', [
+                    'source_size' => "{$sourceWidth}x{$sourceHeight}",
+                    'expected_grid' => "{$expectedGridWidth}x{$expectedGridHeight}",
+                    'detected_scale' => $captureScale,
+                    'width_scale' => $widthScale,
+                    'height_scale' => $heightScale
+                ]);
+                
+                // Calculate source region: occupied tiles area in the captured grid image
+                // CRITICAL: The frontend creates a wrapper sized to grid.width() x grid.height().
+                // Text is positioned using getBoundingClientRect() which gives positions relative
+                // to the grid's bounding box. The grid has a TILE_GAP (2px) margin.
+                //
+                // When html2canvas captures the wrapper, it captures starting at (0,0) of the wrapper.
+                // Text positions in the captured image are relative to (0,0) of the wrapper.
+                //
+                // If the wrapper includes the grid margin, then (0,0) in wrapper = grid's top-left (with margin).
+                // The first tile starts at (TILE_GAP, TILE_GAP) = (2, 2) in grid coordinates.
+                //
+                // But if text appears at top-left in preview, it means text is at (0,0) or very close
+                // in the extracted region. This suggests either:
+                // 1. Text is positioned at (0,0) in captured image (not accounting for margin)
+                // 2. We're extracting from the wrong position
+                //
+                // Try extracting from (0,0) when minCol=0, minRow=0, since canvas (0,0) = first tile
+                // and text might be positioned from wrapper's (0,0) which corresponds to first tile's visual start
+                
+                // CRITICAL: Text appears at top-left corner, which means extraction coordinates are wrong.
+                // The grid wrapper is sized to grid.width() x grid.height().
+                // Text is positioned using getBoundingClientRect() relative to grid's bounding box.
+                // 
+                // If text is at top-left in preview, it suggests text in captured image is at (0,0) or close.
+                // This could mean:
+                // 1. Wrapper's (0,0) = first tile's visual start (not grid margin)
+                // 2. Text is positioned from wrapper origin, not accounting for grid margin
+                //
+                // Try extracting from (0,0) when minCol=0, minRow=0, since canvas (0,0) = first tile
+                // and text might be positioned from wrapper's (0,0) which corresponds to first tile
+                if ($minCol == 0 && $minRow == 0) {
+                    // Extract from (0,0) - text is positioned from wrapper origin
+                    $srcX = 0;
+                    $srcY = 0;
+                } else {
+                    // Not starting from first tile - extract from tile position accounting for margin
+                    $srcX = intval((self::TILE_GAP + $minCol * (self::TILE_WIDTH + self::TILE_GAP)) * $captureScale);
+                    $srcY = intval((self::TILE_GAP + $minRow * (self::TILE_HEIGHT + self::TILE_GAP)) * $captureScale);
+                }
+                
+                $srcW = intval((($maxCol - $minCol + 1) * self::TILE_WIDTH + ($maxCol - $minCol) * self::TILE_GAP) * $captureScale);
+                $srcH = intval((($maxRow - $minRow + 1) * self::TILE_HEIGHT + ($maxRow - $minRow) * self::TILE_GAP) * $captureScale);
+                
+                Log::info('PreviewRenderer: Text layer source region calculation', [
+                    'min_col' => $minCol,
+                    'min_row' => $minRow,
+                    'max_col' => $maxCol,
+                    'max_row' => $maxRow,
+                    'capture_scale' => $captureScale,
+                    'src_x_before_clamp' => $srcX,
+                    'src_y_before_clamp' => $srcY,
+                    'src_w_before_clamp' => $srcW,
+                    'src_h_before_clamp' => $srcH,
+                    'source_image_size' => "{$sourceWidth}x{$sourceHeight}"
+                ]);
+                
+                // Ensure source region doesn't exceed image bounds
+                $srcX = max(0, min($srcX, $sourceWidth - 1));
+                $srcY = max(0, min($srcY, $sourceHeight - 1));
+                $srcW = min($srcW, $sourceWidth - $srcX);
+                $srcH = min($srcH, $sourceHeight - $srcY);
+                
+                Log::info('PreviewRenderer: Text layer source region after clamping', [
+                    'src_x' => $srcX,
+                    'src_y' => $srcY,
+                    'src_w' => $srcW,
+                    'src_h' => $srcH
+                ]);
+                
+                // Create text canvas at preview size (already cropped to occupied tiles)
+                $textCanvas = imagecreatetruecolor($canvasWidth, $canvasHeight);
+                imagealphablending($textCanvas, false);
+                imagesavealpha($textCanvas, true);
+                $textTransparent = imagecolorallocatealpha($textCanvas, 0, 0, 0, 127);
+                imagefill($textCanvas, 0, 0, $textTransparent);
+                imagealphablending($textCanvas, true);
+                
+                // Extract and scale the relevant portion of text layer image
+                // The captured image is at captureScale (1x or 2x), preview canvas is at 2x (SCALE)
+                // If captureScale == 2, we can copy directly. If captureScale == 1, we need to scale up.
+                Log::info('PreviewRenderer: Text layer extraction', [
+                    'source_region' => "{$srcX},{$srcY} {$srcW}x{$srcH}",
+                    'destination_size' => "{$canvasWidth}x{$canvasHeight}",
+                    'capture_scale' => $captureScale,
+                    'preview_scale' => self::SCALE
+                ]);
+                
+                if (abs($captureScale - self::SCALE) < 0.1) {
+                    // Same scale - direct copy (no resampling needed)
+                    imagecopy(
+                        $textCanvas,      // destination (2x preview size)
+                        $textLayerImage,  // source (2x captured)
+                        0, 0,             // destination x, y
+                        $srcX, $srcY,     // source x, y (occupied tiles region at 2x)
+                        $canvasWidth,     // destination width (2x preview size)
+                        $canvasHeight     // destination height (2x preview size)
+                    );
+                } else {
+                    // Different scales - resample
+                    imagecopyresampled(
+                        $textCanvas,      // destination (2x preview size)
+                        $textLayerImage,  // source (captureScale x)
+                        0, 0,             // destination x, y
+                        $srcX, $srcY,     // source x, y (occupied tiles region)
+                        $canvasWidth,     // destination width (2x preview size)
+                        $canvasHeight,    // destination height (2x preview size)
+                        $srcW,            // source width (occupied tiles region)
+                        $srcH             // source height (occupied tiles region)
+                    );
+                }
+                
+                imagedestroy($textLayerImage);
+                
+                // Apply mask to text canvas
+                $this->applyMaskToCanvas($textCanvas, $maskCanvas, $canvasWidth, $canvasHeight, $textTransparent);
+                
+                // Copy to main canvas at (0,0) - canvas is already cropped to occupied tiles
+                imagealphablending($canvas, true);
+                imagecopy($canvas, $textCanvas, 0, 0, 0, 0, $canvasWidth, $canvasHeight);
+                imagealphablending($canvas, false);
+                imagedestroy($textCanvas);
+                
+                Log::info('PreviewRenderer: Used saved text layer image from editor');
+                return; // Successfully used saved image, exit early
+            } catch (\Exception $e) {
+                Log::warning('PreviewRenderer: Failed to use saved text layer image, falling back to recalculation', [
+                    'error' => $e->getMessage()
+                ]);
+                // Fall through to recalculation method
+            }
+        }
+        
+        // Fallback: Recalculate text using PHP GD (for backward compatibility)
         $overlays = $this->parseTextOverlays($master['text_editor'] ?? null);
         if (empty($overlays)) {
             return;
@@ -647,17 +824,14 @@ class PreviewRenderer
             // When saving, .middle-top is hidden, so no additional vertical offset
             //
             // Convert from .middle coordinates to grid pixel coordinates
-            $gridX = $editorX - self::CONTAINER_PADDING;
-            $gridY = $editorY - self::CONTAINER_PADDING;
-            
-            // Apply position correction (in editor units, will be scaled later)
-            // Adjusted: Move text layer MORE to the RIGHT (+2px, twice the last 2px shift)
-            $gridX += self::TEXT_POSITION_OFFSET_X;
-            $gridY += self::TEXT_POSITION_OFFSET_Y;
+            // Grid starts at CONTAINER_PADDING (10px) + TILE_GAP (2px) = 12px from .middle origin
+            $gridX = $editorX - self::CONTAINER_PADDING - self::TILE_GAP;
+            $gridY = $editorY - self::CONTAINER_PADDING - self::TILE_GAP;
             
             // Convert from grid pixel coordinates to canvas coordinates (before scaling)
             // minCol/minRow represent the leftmost/topmost occupied tiles
             // Each tile is (TILE_WIDTH + TILE_GAP) wide and (TILE_HEIGHT + TILE_GAP) tall
+            // Canvas (0,0) corresponds to (minCol, minRow) in grid coordinates
             $canvasXBeforeScale = $gridX - ($minCol * (self::TILE_WIDTH + self::TILE_GAP));
             $canvasYBeforeScale = $gridY - ($minRow * (self::TILE_HEIGHT + self::TILE_GAP));
             

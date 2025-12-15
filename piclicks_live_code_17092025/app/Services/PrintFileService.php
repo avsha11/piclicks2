@@ -119,17 +119,12 @@ class PrintFileService
             
             // Create block canvas with bleed (white background for photos)
             $blockCanvas = imagecreatetruecolor($blockPrintW, $blockPrintH);
-            // Disable alpha blending for initial fill
             imagealphablending($blockCanvas, false);
-            // Don't save alpha channel for photo canvas (opaque white background)
-            imagesavealpha($blockCanvas, false);
+            imagesavealpha($blockCanvas, true);
             
             // Fill with white background (photos print on white paper)
             $white = imagecolorallocate($blockCanvas, 255, 255, 255);
             imagefilledrectangle($blockCanvas, 0, 0, $blockPrintW, $blockPrintH, $white);
-            
-            // Re-enable alpha blending for image compositing
-            imagealphablending($blockCanvas, true);
             
             // RENDER ORDER (bottom to top): Image → Filter → Text → Frame
             // Following constants.json RENDER_ORDER: frame, text, filter, image
@@ -143,7 +138,7 @@ class PrintFileService
             }
             
             // Step 3: Render Text (on top of filter)
-            if (!empty($textOverlays)) {
+            if (!empty($textOverlays) || !empty($frameConfig['text_layer_path'] ?? null)) {
                 $this->renderText($blockCanvas, $textOverlays, $blockClearW, $blockClearH, $frameConfig);
             }
             
@@ -648,9 +643,27 @@ class PrintFileService
     
     /**
      * Render text overlays on block canvas
+     * Uses unified text layer PNG if available, otherwise falls back to individual element rendering
      */
     private function renderText($canvas, array $textOverlays, int $blockClearW, int $blockClearH, array $frameConfig): void
     {
+        // Prefer unified text layer PNG if provided
+        $textLayerPath = $frameConfig['text_layer_path'] ?? null;
+        if (!empty($textLayerPath)) {
+            try {
+                $this->renderTextLayerPNG($canvas, $blockClearW, $blockClearH, $frameConfig, $textLayerPath);
+                return;
+            } catch (\Throwable $e) {
+                Log::warning("Text layer PNG rendering failed, falling back to individual text", [
+                    'error' => $e->getMessage(),
+                    'line' => $e->getLine(),
+                    'path' => $textLayerPath
+                ]);
+                // continue to individual rendering
+            }
+        }
+        
+        // Fallback to individual elements
         if (empty($textOverlays)) {
             return;
         }
@@ -700,8 +713,7 @@ class PrintFileService
             // Editor font size is in CSS pixels, scale to print pixels using the same scale as positions
             // Use uniform scale factor (average of X and Y) for fonts to maintain aspect ratio
             $uniformScale = $avgScale;
-            $textSizeMultiplier = 3.5; // Enlarge text layer by 3.5x as requested
-            $printFontSizePx = max(1.0, $editorFontSize * $uniformScale * $textSizeMultiplier);
+            $printFontSizePx = max(1.0, $editorFontSize * $uniformScale);
             
             // Convert print pixels to points for imagettftext()
             // GD's imagettftext() expects font size in points (1 point = 1/72 inch)
@@ -791,7 +803,168 @@ class PrintFileService
             imagettftext($canvas, $gdFontSize, $gdRotationDegrees, (int) round($baselineX), (int) round($baselineY), $textColor, $fontPath, $text);
         }
         
-        Log::debug("Text rendering completed", ['total_overlays' => count($textOverlays)]);
+        Log::debug("Text rendering completed (individual elements)", ['total_overlays' => count($textOverlays)]);
+    }
+    
+    /**
+     * Render text layer from PNG file (unified approach)
+     * This preserves exact relative positions and gaps between all text elements
+     * Memory-efficient: only scales the tile portion, not the entire collage
+     */
+    private function renderTextLayerPNG($canvas, int $blockClearW, int $blockClearH, array $frameConfig, string $textLayerPath): void
+    {
+        $fullTextLayerPath = public_path($textLayerPath);
+        if (!file_exists($fullTextLayerPath)) {
+            Log::warning("Text layer PNG not found, skipping text", ['path' => $fullTextLayerPath]);
+            return;
+        }
+        
+        // Validate PNG
+        $imageInfo = @getimagesize($fullTextLayerPath);
+        if ($imageInfo === false || $imageInfo[2] !== IMAGETYPE_PNG) {
+            Log::warning("Text layer PNG is not valid", [
+                'path' => $fullTextLayerPath,
+                'file_size' => file_exists($fullTextLayerPath) ? filesize($fullTextLayerPath) : 0
+            ]);
+            return;
+        }
+        
+        $textLayerImg = @imagecreatefrompng($fullTextLayerPath);
+        if (!$textLayerImg) {
+            Log::warning("Failed to load text layer PNG", [
+                'path' => $fullTextLayerPath,
+                'file_size' => file_exists($fullTextLayerPath) ? filesize($fullTextLayerPath) : 0
+            ]);
+            return;
+        }
+        
+        $editorWidth = imagesx($textLayerImg);
+        $editorHeight = imagesy($textLayerImg);
+        
+        $tileCol = $frameConfig['tile_col'] ?? 0;
+        $tileRow = $frameConfig['tile_row'] ?? 0;
+        $gridCols = max(1, (int)($frameConfig['grid_columns'] ?? 1));
+        $gridRows = max(1, (int)($frameConfig['grid_rows'] ?? 1));
+        
+        // Editor tile dimensions (from tool.js)
+        $editorTileWidth = 91.0;
+        $editorTileHeight = 80.0;
+        $editorTileGap = 2.0;
+        
+        $expectedEditorBlockW = ($gridCols * $editorTileWidth) + (($gridCols - 1) * $editorTileGap);
+        $expectedEditorBlockH = ($gridRows * $editorTileHeight) + (($gridRows - 1) * $editorTileGap);
+        
+        // Scale factors from expected editor block to actual PNG
+        $scaleToPNGX = $expectedEditorBlockW > 0 ? ($editorWidth / $expectedEditorBlockW) : 1.0;
+        $scaleToPNGY = $expectedEditorBlockH > 0 ? ($editorHeight / $expectedEditorBlockH) : 1.0;
+        
+        // Tile origin in editor space (including gaps), then mapped to PNG
+        $tileXInEditor = $tileCol * ($editorTileWidth + $editorTileGap);
+        $tileYInEditor = $tileRow * ($editorTileHeight + $editorTileGap);
+        
+        $srcX = max(0, (int)round($tileXInEditor * $scaleToPNGX));
+        $srcY = max(0, (int)round($tileYInEditor * $scaleToPNGY));
+        $srcW = max(1, (int)round($editorTileWidth * $scaleToPNGX));
+        $srcH = max(1, (int)round($editorTileHeight * $scaleToPNGY));
+        
+        // Clamp to PNG bounds
+        if ($srcX + $srcW > $editorWidth) {
+            $srcW = $editorWidth - $srcX;
+        }
+        if ($srcY + $srcH > $editorHeight) {
+            $srcH = $editorHeight - $srcY;
+        }
+        if ($srcW <= 0 || $srcH <= 0) {
+            Log::warning("Invalid text layer crop", ['src' => "{$srcX},{$srcY} {$srcW}x{$srcH}"]);
+            imagedestroy($textLayerImg);
+            return;
+        }
+        
+        // Destination = tile clear area size
+        $dstW = $blockClearW;
+        $dstH = $blockClearH;
+        
+        // To make text larger, we scale the source crop area down by the multiplier
+        // This means we sample a smaller area and scale it up, making text appear larger
+        // Increased to 5.0 to make text significantly larger than editor
+        $textSizeMultiplier = 5.0;
+        $scaledSrcW = max(1, (int)round($srcW / $textSizeMultiplier));
+        $scaledSrcH = max(1, (int)round($srcH / $textSizeMultiplier));
+        // Center the smaller crop area within the original crop area
+        $scaledSrcX = max(0, $srcX + (int)round(($srcW - $scaledSrcW) / 2));
+        $scaledSrcY = max(0, $srcY + (int)round(($srcH - $scaledSrcH) / 2));
+        
+        // Clamp to PNG bounds
+        if ($scaledSrcX + $scaledSrcW > $editorWidth) {
+            $scaledSrcW = $editorWidth - $scaledSrcX;
+        }
+        if ($scaledSrcY + $scaledSrcH > $editorHeight) {
+            $scaledSrcH = $editorHeight - $scaledSrcY;
+        }
+        if ($scaledSrcW <= 0 || $scaledSrcH <= 0) {
+            Log::warning("Invalid scaled text layer crop", ['src' => "{$scaledSrcX},{$scaledSrcY} {$scaledSrcW}x{$scaledSrcH}"]);
+            imagedestroy($textLayerImg);
+            return;
+        }
+        
+        Log::debug("Text layer PNG rendering", [
+            'png_dimensions' => "{$editorWidth}x{$editorHeight}",
+            'expected_editor_block' => "{$expectedEditorBlockW}x{$expectedEditorBlockH}",
+            'print_block' => "{$blockClearW}x{$blockClearH}",
+            'tile_position' => "col:{$tileCol}, row:{$tileRow}",
+            'source_crop' => "{$srcX},{$srcY} -> {$srcW}x{$srcH}",
+            'scaled_source_crop' => "{$scaledSrcX},{$scaledSrcY} -> {$scaledSrcW}x{$scaledSrcH}",
+            'destination_size' => "{$dstW}x{$dstH}",
+            'text_size_multiplier' => $textSizeMultiplier,
+            'text_layer_path' => $textLayerPath
+        ]);
+        
+        // Create tile-sized canvas with alpha
+        $scaledTile = imagecreatetruecolor($dstW, $dstH);
+        imagealphablending($scaledTile, false);
+        imagesavealpha($scaledTile, true);
+        $transparent = imagecolorallocatealpha($scaledTile, 0, 0, 0, 127);
+        imagefill($scaledTile, 0, 0, $transparent);
+        imagealphablending($scaledTile, true);
+        
+        // Scale the smaller source crop to the full destination size
+        // This makes the text 3x larger because we're sampling 1/3 the area
+        imagecopyresampled(
+            $scaledTile, $textLayerImg,
+            0, 0,
+            $scaledSrcX, $scaledSrcY,
+            $dstW, $dstH,
+            $scaledSrcW, $scaledSrcH
+        );
+        
+        // Place at bleed origin
+        $dstX = $this->bleedPx;
+        $dstY = $this->bleedPx;
+        
+        $canvasW = imagesx($canvas);
+        $canvasH = imagesy($canvas);
+        $copyW = min($dstW, $canvasW - $dstX);
+        $copyH = min($dstH, $canvasH - $dstY);
+        
+        if ($copyW > 0 && $copyH > 0 && $dstX >= 0 && $dstY >= 0) {
+            $origBlend = imagealphablending($canvas, true);
+            $origSave = imagesavealpha($canvas, true);
+            
+            imagecopy($canvas, $scaledTile, $dstX, $dstY, 0, 0, $copyW, $copyH);
+            
+            imagealphablending($canvas, $origBlend);
+            imagesavealpha($canvas, $origSave);
+        }
+        
+        imagedestroy($textLayerImg);
+        imagedestroy($scaledTile);
+        
+        Log::debug("Text layer PNG applied to tile", [
+            'tile_position' => "{$tileCol},{$tileRow}",
+            'crop_area' => "{$srcX},{$srcY} -> {$srcW}x{$srcH}",
+            'destination' => "{$dstX},{$dstY}",
+            'size' => "{$dstW}x{$dstH}"
+        ]);
     }
     
     private function convertCssTranslateToPixels($value, float $referenceSize, int $fallbackSize): float
